@@ -10,13 +10,19 @@ def humanSort(text):  # Sort function for strings w/ numbers
 
 
 def check_runs(method, id=None):
-    exps_path = os.path.join('runs', method)
-    if not os.path.exists(exps_path): os.makedirs(exps_path)
-
-    exps = [exp for exp in humanSort(os.listdir(exps_path)) if 'exp' in exp]
-    out  = os.path.join(exps_path,'exp'+str(len(exps)+1)) if not id else os.path.join(exps_path, exps[id])
-    if not id: os.makedirs(os.path.join(exps_path,'exp'+str(len(exps)+1)))
-    return out
+        exps_path = os.path.join('runs', method)
+        if not os.path.exists(exps_path): os.makedirs(exps_path)
+        sorted = general.humanSort(os.listdir(exps_path))
+        #print(f"humanSort({os.listdir(exps_path)}) = {sorted}")
+        exps = [exp for exp in sorted if 'exp' in exp]
+        # if 'id' is given, out-path is specfic, i.e. overwrites existing, else creates new
+        # ERROR: if not id (when id=-1, it doesnt act as boolean false), CORRECTION: check with array bounds
+        if id in range(len(exps)):
+            os.path.join(exps_path, exps[id])
+        else:
+            out  = os.path.join(exps_path,'exp'+str(len(exps)+1))
+            os.makedirs(out)
+        return out
 
 
 def save(method, data, name, run_id=-1):
