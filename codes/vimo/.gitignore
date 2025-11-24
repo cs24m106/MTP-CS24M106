@@ -1,2 +1,6 @@
 datasets/
 preprocessors/
+outputs/
+
+**/__pycache__/
+
