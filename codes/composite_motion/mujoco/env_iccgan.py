@@ -1,0 +1,589 @@
+"""
+MuJoCo-compatible environment for CompositeMotion
+Converted from IsaacGym version
+"""
+from typing import Dict, Tuple, Optional, List
+import torch, os
+import numpy as np
+
+from ref_motion import ReferenceMotion
+from env_mujoco import MujocoEnv, DiscriminatorConfig
+
+class ICCGANHumanoidMujoco(MujocoEnv):
+    """ICCGAN Humanoid environment for MuJoCo"""
+    
+    CHARACTER_MODEL = os.path.join("assets", "humanoid.xml")
+    CONTACTABLE_LINKS = ["right_foot", "left_foot"]
+    UP_AXIS = 2
+    
+    GOAL_DIM = 0
+    GOAL_REWARD_WEIGHT = None
+    ENABLE_GOAL_TIMER = False
+    GOAL_TENSOR_DIM = None
+    
+    OB_HORIZON = 4
+    KEY_LINKS = None  # All links
+    PARENT_LINK = None  # root link
+    
+    def __init__(self, *args,
+        motion_file: str,
+        discriminators: Dict[str, DiscriminatorConfig],
+        **kwargs
+    ):
+        self.contactable_links_names = kwargs.get("contactable_links", self.CONTACTABLE_LINKS)
+        self.goal_reward_weight = kwargs.get("goal_reward_weight", self.GOAL_REWARD_WEIGHT)
+        self.enable_goal_timer = kwargs.get("enable_goal_timer", self.ENABLE_GOAL_TIMER)
+        self.goal_tensor_dim = kwargs.get("goal_tensor_dim", self.GOAL_TENSOR_DIM)
+        self.ob_horizon = kwargs.get("ob_horizon", self.OB_HORIZON)
+        self.key_links_names = kwargs.get("key_links", self.KEY_LINKS)
+        self.parent_link_name = kwargs.get("parent_link", self.PARENT_LINK)
+        
+        # initialize max_ob_horizon first itself, so base class can setup_state_spaces() correctly
+        self.max_ob_horizon = self.ob_horizon + 1
+        for config in discriminators.values(): # iterate through discriminator configs
+            if config.ob_horizon is None:
+                config.ob_horizon = self.ob_horizon + 1 # update configs with empty ob_horizon
+            self.max_ob_horizon = max(self.max_ob_horizon, config.ob_horizon)
+
+        # Load reference motion BEFORE calling super().__init__
+        # This is needed to properly initialize state_hist
+        self._temp_motion_file = motion_file
+        self._temp_character_model = kwargs.get("character_model", self.CHARACTER_MODEL)
+        if isinstance(self._temp_character_model, str):
+            self._temp_character_model = [self._temp_character_model]
+        
+        # Setup state history --> will be done create_tensors(), that will be called from super.__init__
+        super().__init__(*args, **kwargs)
+        
+        n_envs = self.n_envs
+        n_links = self.model.nbody
+        n_dofs = self.model.nv
+        
+        # Setup contactable links
+        if self.contactable_links_names is None:
+            self.contactable_links = None
+        else:
+            contact = np.full((n_envs, n_links), 0.15)
+            if not isinstance(self.contactable_links_names, dict):
+                contactable_links_dict = {link: -10000 for link in self.contactable_links_names}
+            else:
+                contactable_links_dict = self.contactable_links_names
+            
+            for link_name, h in contactable_links_dict.items():
+                if link_name in self.body_names:
+                    lid = self.body_names.index(link_name)
+                    contact[:, lid] = h
+                else:
+                    print(f"[Warning] Unrecognized contactable link {link_name}")
+            
+            self.contactable_links = torch.tensor(contact, dtype=torch.float32, device=self.device)
+        
+        # Setup reward weights
+        reward_weights = None
+        if self.goal_reward_weight is not None:
+            reward_weights = torch.empty((n_envs, self.rew_dim), dtype=torch.float32, device=self.device)
+            if not hasattr(self.goal_reward_weight, "__len__"):
+                self.goal_reward_weight = [self.goal_reward_weight]
+            assert self.rew_dim == len(self.goal_reward_weight)
+            for i, w in enumerate(self.goal_reward_weight):
+                reward_weights[:, i] = w
+        
+        # Setup discriminators
+        n_comp = len(discriminators) + self.rew_dim
+        if n_comp > 1:
+            self.reward_weights = torch.zeros((n_envs, n_comp), dtype=torch.float32, device=self.device)
+            weights = [disc.weight for _, disc in discriminators.items() if disc.weight is not None]
+            total_weights = sum(weights) if weights else 0
+            assert total_weights <= 1, "Discriminator weights must not be greater than 1."
+            n_unassigned = len(discriminators) - len(weights)
+            rem = 1 - total_weights
+            for disc in discriminators.values():
+                if disc.weight is None:
+                    disc.weight = rem / n_unassigned
+                elif n_unassigned == 0:
+                    disc.weight /= total_weights
+        else:
+            self.reward_weights = None
+        
+        self.discriminators = dict()
+        # validate discriminator configs and update with links
+        for i, (id, config) in enumerate(discriminators.items()):
+            # Setup key links
+            if config.key_links is None:
+                key_links = None
+            else:
+                key_links = []
+                for link_name in config.key_links:
+                    if link_name in self.body_names:
+                        lid = self.body_names.index(link_name)
+                        key_links.append(lid)
+                    else:
+                        print(f"[Warning] Unrecognized key link {link_name}")
+                key_links = sorted(key_links) if key_links else None
+            
+            # Setup parent link
+            if config.parent_link is None:
+                parent_link = None
+            else:
+                if config.parent_link in self.body_names:
+                    parent_link = self.body_names.index(config.parent_link)
+                else:
+                    print(f"[Warning] Unrecognized parent link {config.parent_link}")
+                    parent_link = None
+            
+            config.parent_link = parent_link
+            config.key_links = key_links
+            
+            if config.motion_file is None:
+                config.motion_file = motion_file
+            config.id = i
+            config.name = id
+            self.discriminators[id] = config
+            
+            if self.reward_weights is not None:
+                self.reward_weights[:, i] = config.weight
+        
+        if self.reward_weights is None:
+            self.reward_weights = torch.ones((n_envs, 1), dtype=torch.float32, device=self.device)
+        elif self.rew_dim > 0 and reward_weights is not None:
+            if self.rew_dim > 1:
+                self.reward_weights *= (1 - reward_weights.sum(dim=-1, keepdim=True))
+            else:
+                self.reward_weights *= (1 - reward_weights)
+            self.reward_weights[:, -self.rew_dim:] = reward_weights
+        
+        self.info["ob_seq_lens"] = torch.zeros_like(self.lifetime)  # dummy result
+        self.goal_dim = self.GOAL_DIM
+        self.state_dim = (self.ob_dim - self.goal_dim) // self.ob_horizon
+        
+        if self.discriminators:
+            self.info["disc_obs"] = self.observe_disc(self.state_hist)  # dummy result
+            self.info["disc_obs_expert"] = self.info["disc_obs"]  # dummy result
+            self.disc_dim = {
+                name: ob.size(-1)
+                for name, ob in self.info["disc_obs"].items()
+            }
+        else:
+            self.disc_dim = {}
+        
+        # Load reference motion
+        self.ref_motion = self.build_motion_lib(motion_file)
+        self.sampling_workers = []
+        self.real_samples = []
+    
+    def build_motion_lib(self, motion_file):
+        """Build reference motion library"""
+        return ReferenceMotion(
+            motion_file=motion_file, 
+            character_model=self.character_model, 
+            device=self.device
+        )
+
+    def reset_done(self):
+        """Reset done environments and return observations with info"""
+        obs, info = super().reset_done()
+        info["ob_seq_lens"] = self.ob_seq_lens
+        info["reward_weights"] = self.reward_weights
+        return obs, info
+    
+    def step(self, actions):
+        """Step environment and update discriminator observations"""
+        obs, rews, terminated, truncated, info = super().step(actions)
+        if self.discriminators and self.training:
+            info["disc_obs"] = self.observe_disc(self.state_hist)
+            info["disc_obs_expert"] = self.fetch_real_samples()
+        return obs, rews, terminated, truncated, info
+    
+    def create_tensors(self):
+        """Create tensors with character-specific info"""
+        super().create_tensors()
+        
+        n_links = self.model.nbody
+        n_dofs = self.model.nv
+        
+        # Character-specific tensors
+        self.root_pos = self.root_tensor[:, :3]
+        self.root_orient = self.root_tensor[:, 3:7]
+        self.root_lin_vel = self.root_tensor[:, 7:10]
+        self.root_ang_vel = self.root_tensor[:, 10:13]
+        self.char_root_tensor = self.root_tensor
+        
+        self.link_pos = self.link_tensor[:, :, :3]
+        self.link_orient = self.link_tensor[:, :, 3:7]
+        self.link_lin_vel = self.link_tensor[:, :, 7:10]
+        self.link_ang_vel = self.link_tensor[:, :, 10:13]
+        self.char_link_tensor = self.link_tensor
+        
+        self.joint_pos = self.joint_tensor[:, :, 0]
+        self.joint_vel = self.joint_tensor[:, :, 1]
+        self.char_joint_tensor = self.joint_tensor
+        
+        self.char_contact_force_tensor = self.contact_force_tensor
+        
+        # Setup state history (NOTE: self.max_ob_horizon must be initilized before)
+        self.state_hist = torch.zeros((self.max_ob_horizon, self.n_envs, n_links * 13),
+            dtype=torch.float32, device=self.device)
+        
+        # Setup key links
+        if self.key_links_names is None:
+            self.key_links = list(range(n_links))
+        else:
+            self.key_links = []
+            for link_name in self.key_links_names:
+                if link_name in self.body_names:
+                    lid = self.body_names.index(link_name)
+                    self.key_links.append(lid)
+        
+        # Setup parent link
+        if self.parent_link_name is None:
+            self.parent_link = None
+        else:
+            if self.parent_link_name in self.body_names:
+                self.parent_link = self.body_names.index(self.parent_link_name)
+            else:
+                self.parent_link = None
+        
+        # Goal tensor
+        if self.goal_tensor_dim:
+            try:
+                self.goal_tensor = [
+                    torch.zeros((self.n_envs, dim), dtype=torch.float32, device=self.device)
+                    for dim in self.goal_tensor_dim
+                ]
+            except TypeError:
+                self.goal_tensor = torch.zeros((self.n_envs, self.goal_tensor_dim), 
+                    dtype=torch.float32, device=self.device)
+        else:
+            self.goal_tensor = None
+        
+        self.goal_timer = torch.zeros((self.n_envs,), dtype=torch.int32, device=self.device) \
+            if self.enable_goal_timer else None
+    
+    def init_state(self, env_ids):
+        """Initialize state from reference motion"""
+        motion_ids, motion_times = self.ref_motion.sample(len(env_ids))
+        ref_link_tensor, ref_joint_tensor = self.ref_motion.state(motion_ids, motion_times)
+        
+        # Adjust for ground height if needed
+        ground_height = self.ground_height(ref_link_tensor[:, 0, :3], env_ids)
+        if ground_height is not None:
+            ref_link_tensor[:, :, 2] += ground_height.unsqueeze(1)
+        
+        return ref_link_tensor, ref_joint_tensor
+    
+    def ground_height(self, p, env_ids=None):
+        """Get ground height at position"""
+        return None
+    
+    def observe(self, env_ids=None):
+        """Observe with ICCGAN observation function"""
+        self.ob_seq_lens = self.lifetime + 1
+        n_envs = self.n_envs
+        
+        if env_ids is None or len(env_ids) == n_envs:
+            self.state_hist[:-1] = self.state_hist[1:].clone()
+            self.state_hist[-1] = self.char_link_tensor.view(n_envs, -1)
+            env_ids = None
+        else:
+            n_envs = len(env_ids)
+            self.state_hist[:-1, env_ids] = self.state_hist[1:, env_ids].clone()
+            self.state_hist[-1, env_ids] = self.char_link_tensor[env_ids].view(n_envs, -1)
+        
+        return self._observe_iccgan(env_ids)
+    
+    def _observe_iccgan(self, env_ids=None):
+        """Internal ICCGAN observation"""
+        if env_ids is None:
+            ground_height = self.ground_height(self.state_hist[-1, :, :3])
+            return observe_iccgan_safe(
+                self.state_hist[-self.ob_horizon:], self.ob_seq_lens, self.key_links, self.parent_link,
+                ground_height=ground_height
+            ).flatten(start_dim=1)
+        else:
+            ground_height = self.ground_height(self.state_hist[-1, env_ids, :3], env_ids)
+            return observe_iccgan_safe(
+                self.state_hist[-self.ob_horizon:][:, env_ids], self.ob_seq_lens[env_ids], 
+                self.key_links, self.parent_link,
+                ground_height=ground_height
+            ).flatten(start_dim=1)
+    
+    def observe_disc(self, state):
+        """Observe for discriminator"""
+        seq_len = self.info["ob_seq_lens"] + 1
+        res = dict()
+        
+        if torch.is_tensor(state):
+            # Fake
+            for id, disc in self.discriminators.items():
+                res[id] = observe_iccgan_safe(state[-disc.ob_horizon:], seq_len, disc.key_links, disc.parent_link,
+                    include_velocity=False, local_pos=disc.local_pos)
+            return res
+        else:
+            # Real
+            seq_len_ = dict()
+            for disc_name, s in state.items():
+                disc = self.discriminators[disc_name]
+                res[disc_name] = observe_iccgan_safe(s[-disc.ob_horizon:], seq_len, disc.key_links, disc.parent_link,
+                    include_velocity=False, local_pos=disc.local_pos)
+                seq_len_[disc_name] = seq_len
+            return res, seq_len_
+    
+    def fetch_real_samples(self):
+        """Fetch real samples from reference motion"""
+        if not self.real_samples:
+            # Generate samples directly without multiprocessing for simplicity
+            obs_list = []
+            for _ in range(128):
+                dt = self.step_time
+                ob_horizon = max(disc.ob_horizon for disc in self.discriminators.values())
+                
+                motion_ids, motion_times0 = self.ref_motion.sample(self.n_envs, truncate_time=dt*(ob_horizon-1))
+                motion_ids = np.tile(motion_ids, ob_horizon)
+                motion_times = np.concatenate([motion_times0 + dt*i for i in range(ob_horizon)])
+                
+                link_tensor = self.ref_motion.state(motion_ids, motion_times, with_joint_tensor=False)
+                samples = link_tensor.view(ob_horizon, self.n_envs, -1)
+                
+                # Create discriminator observations
+                disc_obs = {}
+                for name, disc in self.discriminators.items():
+                    ob = observe_iccgan_safe(samples[-disc.ob_horizon:], None, disc.key_links, disc.parent_link,
+                        include_velocity=False, local_pos=disc.local_pos)
+                    disc_obs[name] = ob.cpu()
+                
+                obs_list.append(disc_obs)
+            
+            self.real_samples = obs_list
+        
+        return self.real_samples.pop()
+    
+    def termination_check(self):
+        """Check termination conditions"""
+        if self.contactable_links is None:
+            return torch.zeros_like(self.done)
+        
+        # Check contact forces
+        contacted = torch.any(self.char_contact_force_tensor.abs() > 1., dim=-1)
+        
+        # Check height
+        ground_height = self.ground_height(self.char_root_tensor[:, :3])
+        if ground_height is None:
+            low_threshold = self.contactable_links
+        else:
+            low_threshold = self.contactable_links + ground_height.unsqueeze(1)
+        
+        too_low = self.link_pos[..., self.UP_AXIS] < low_threshold
+        
+        terminate = torch.any(torch.logical_and(contacted, too_low), -1)
+        terminate *= (self.lifetime > 1)
+        return terminate
+
+
+class ICCGANHumanoidTargetMujoco(ICCGANHumanoidMujoco):
+    """ICCGAN Humanoid with target reaching - for locomotion tasks"""
+    
+    GOAL_DIM = 2
+    GOAL_REWARD_WEIGHT = [0.5]
+    ENABLE_GOAL_TIMER = True
+    GOAL_TENSOR_DIM = 2
+    
+    def __init__(self, *args,
+        goal_radius: float = 0.5,
+        sp_lower_bound: float = 1.2,
+        sp_upper_bound: float = 1.5,
+        goal_timer_range: Tuple[int, int] = (90, 150),
+        goal_sp_mean: float = 1.0,
+        goal_sp_std: float = 0.25,
+        goal_sp_min: float = 0.0,
+        goal_sp_max: float = 1.25,
+        **kwargs
+    ):
+        self.goal_radius = goal_radius
+        self.sp_lower_bound = sp_lower_bound
+        self.sp_upper_bound = sp_upper_bound
+        self.goal_timer_range = goal_timer_range
+        self.goal_sp_mean = goal_sp_mean
+        self.goal_sp_std = goal_sp_std
+        self.goal_sp_min = goal_sp_min
+        self.goal_sp_max = goal_sp_max
+        
+        # Extract n_envs and compute_device from args/kwargs to initialize buffers early
+        n_envs = kwargs.get('n_envs', args[0] if len(args) > 0 else 1)
+        compute_device = kwargs.get('compute_device', 0)
+        device = torch.device(f"cuda:{compute_device}" if torch.cuda.is_available() and compute_device >= 0 else "cpu")
+        
+        # Initialize goal positions
+        self.goal_pos = torch.zeros((n_envs, 2), dtype=torch.float32, device=device)
+        self.goal_speed = torch.ones((n_envs,), dtype=torch.float32, device=device)
+
+        # need above params for reward fns to be initialized priorly before setup_state_spaces()
+        super().__init__(*args, **kwargs)
+        self._reset_goals(torch.arange(n_envs, device=device)) # other env params will now be set by super.init
+
+    
+    def _reset_goals(self, env_ids):
+        """Reset goal positions for given environments"""
+        n = len(env_ids)
+        
+        # Sample random goal positions in a circle
+        angles = torch.rand(n, device=self.device) * 2 * np.pi
+        distances = torch.rand(n, device=self.device) * 5.0 + 2.0  # 2-7 meters
+        
+        self.goal_pos[env_ids, 0] = torch.cos(angles) * distances
+        self.goal_pos[env_ids, 1] = torch.sin(angles) * distances
+        
+        # Sample goal speed
+        self.goal_speed[env_ids] = torch.clamp(
+            torch.randn(n, device=self.device) * self.goal_sp_std + self.goal_sp_mean,
+            self.goal_sp_min, self.goal_sp_max
+        )
+        
+        # Reset goal timer
+        if self.goal_timer is not None:
+            self.goal_timer[env_ids] = torch.randint(
+                self.goal_timer_range[0], self.goal_timer_range[1], 
+                (n,), dtype=self.goal_timer.dtype, device=self.device
+            )
+    
+    def reset_envs(self, env_ids):
+        """Reset environments and their goals"""
+        super().reset_envs(env_ids)
+        self._reset_goals(env_ids)
+    
+    def step(self, actions):
+        """Step and update goal timer"""
+        obs, rews, terminated, truncated, info = super().step(actions)
+        
+        # Update goal timer
+        if self.goal_timer is not None:
+            self.goal_timer -= 1
+            reset_envs = torch.nonzero(self.goal_timer <= 0).view(-1)
+            if len(reset_envs) > 0:
+                self._reset_goals(reset_envs)
+        
+        return obs, rews, terminated, truncated, info
+    
+    def observe(self, env_ids=None):
+        """Observe with goal information"""
+        # Get base observation
+        base_obs = super().observe(env_ids)
+        
+        # Compute goal-relative observation
+        if env_ids is None:
+            env_ids = torch.arange(self.n_envs, device=self.device)
+        
+        # Goal position relative to root
+        root_pos = self.root_tensor[env_ids, :2]  # x, y position
+        goal_rel = self.goal_pos[env_ids] - root_pos
+        
+        # Concatenate goal to observation
+        obs_with_goal = torch.cat([base_obs, goal_rel], dim=-1)
+        
+        return obs_with_goal
+    
+    def reward(self):
+        """Compute goal-reaching reward"""
+        # Distance to goal
+        root_pos = self.root_tensor[:, :2]
+        dist = torch.norm(self.goal_pos - root_pos, dim=-1, keepdim=True)
+        
+        # Reward for being close to goal
+        reward = (dist < self.goal_radius).float()
+        
+        # Small penalty for distance
+        reward -= 0.01 * dist
+        
+        return reward
+
+
+from utils import heading_zup, axang2quat, rotatepoint, quatconj, quatmultiply, quatdiff_normalized
+
+def observe_iccgan_safe(state_hist: torch.Tensor, seq_len: Optional[torch.Tensor]=None,
+    key_links: Optional[List[int]]=None, parent_link: Optional[int]=None,
+    include_velocity: bool=True, local_pos: Optional[bool]=None, ground_height:Optional[torch.Tensor]=None
+):
+    """Safe ICCGAN observation function (same as original) with NaN handling"""
+    UP_AXIS = 2
+    n_hist = state_hist.size(0)
+    n_inst = state_hist.size(1)
+
+    link_tensor = state_hist.view(n_hist, n_inst, -1, 13)
+    
+    # Handle NaN/invalid quaternions by replacing with identity
+    # A valid quaternion should have unit norm
+    quats = link_tensor[..., 3:7]
+    quat_norms = torch.norm(quats, dim=-1, keepdim=True)
+    
+    # Replace zero/invalid quaternions with identity [0,0,0,1]
+    invalid_mask = quat_norms < 1e-6
+    identity_quat = torch.tensor([0., 0., 0., 1.], dtype=quats.dtype, device=quats.device)
+    quats = torch.where(invalid_mask, identity_quat.view(1, 1, 1, 4), quats / (quat_norms + 1e-8))
+    link_tensor = link_tensor.clone()
+    link_tensor[..., 3:7] = quats
+    
+    if key_links is None:
+        link_pos, link_orient = link_tensor[...,:3], link_tensor[...,3:7]
+    else:
+        link_pos, link_orient = link_tensor[:,:,key_links,:3], link_tensor[:,:,key_links,3:7]
+
+    if parent_link is None:
+        root_tensor = state_hist[..., :13]
+        if local_pos is True:
+            origin = root_tensor[:,:, :3]
+            orient = root_tensor[:,:,3:7]
+        else:
+            origin = root_tensor[-1,:, :3]
+            orient = root_tensor[-1,:,3:7]
+
+        heading = heading_zup(orient)
+        up_dir = torch.zeros_like(origin)
+        up_dir[..., UP_AXIS] = 1
+        orient_inv = axang2quat(up_dir, -heading)
+        orient_inv = orient_inv.view(-1, n_inst, 1, 4)
+
+        origin = origin.clone()
+        if ground_height is None:
+            origin[..., UP_AXIS] = 0
+        else:
+            origin[..., UP_AXIS] = ground_height
+        origin.unsqueeze_(-2)
+    else:
+        if local_pos is True or local_pos is None:
+            origin = link_tensor[:,:, parent_link, :3]
+            orient = link_tensor[:,:, parent_link,3:7]
+        else:
+            origin = link_tensor[-1,:, parent_link, :3]
+            orient = link_tensor[-1,:, parent_link,3:7]
+        orient_inv = quatconj(orient)
+        orient_inv = orient_inv.view(-1, n_inst, 1, 4)
+        origin = origin.unsqueeze(-2)
+
+    ob_link_pos = link_pos - origin
+    ob_link_pos = rotatepoint(orient_inv, ob_link_pos)
+    ob_link_orient = quatmultiply(orient_inv, link_orient)
+
+    if include_velocity:
+        if key_links is None:
+            link_lin_vel, link_ang_vel = link_tensor[...,7:10], link_tensor[...,10:13]
+        else:
+            link_lin_vel, link_ang_vel = link_tensor[:,:,key_links,7:10], link_tensor[:,:,key_links,10:13]
+        ob_link_lin_vel = rotatepoint(orient_inv, link_lin_vel)
+        ob_link_ang_vel = rotatepoint(orient_inv, link_ang_vel)
+        ob = torch.cat((ob_link_pos, ob_link_orient,
+            ob_link_lin_vel, ob_link_ang_vel), -1)
+    else:
+        ob = torch.cat((ob_link_pos, ob_link_orient), -1)
+    
+    ob = ob.view(n_hist, n_inst, -1)
+
+    ob1 = ob.permute(1, 0, 2)
+    if seq_len is None: 
+        return ob1
+
+    ob2 = torch.zeros_like(ob1)
+    arange = torch.arange(n_hist, dtype=seq_len.dtype, device=seq_len.device).unsqueeze_(0)
+    seq_len_ = seq_len.unsqueeze(1)
+    mask1 = arange > (n_hist-1) - seq_len_
+    mask2 = arange < seq_len_
+    ob2[mask2] = ob1[mask1]
+    return ob2
