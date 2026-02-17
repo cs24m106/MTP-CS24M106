@@ -1,5 +1,7 @@
 datasets/
 outputs/
-**/assets/
+
 **/__pycache__/
 
+**/assets/
+**/checkpoints/

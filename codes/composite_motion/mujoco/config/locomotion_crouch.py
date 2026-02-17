@@ -1,7 +1,7 @@
 env_cls = "ICCGANHumanoidTarget"
 env_params = dict(
     episode_length = 500,
-    motion_file = "assets/motions/clips_walk.yaml",
+    motion_file = "assets/motions/clips_crouch.yaml",
     goal_reward_weight = [0.5],
 
     goal_radius = 0.5,
@@ -15,13 +15,14 @@ env_params = dict(
 )
 
 training_params = dict(
-    max_epochs = 100000,
+    max_epochs = 50000,
     save_interval = 10000,
     terminate_reward = -25
 )
 
 discriminators = {
-    "walk/full": dict(
+    "crouch/full": dict(
         parent_link = None,
     )
 }
+

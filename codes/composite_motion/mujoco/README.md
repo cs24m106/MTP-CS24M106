@@ -1,406 +1,129 @@
-# CompositeMotion - MuJoCo Version
+# Composite Motion Learning with Task Control
 
-This is a MuJoCo-compatible version of the CompositeMotion project, converted from the original IsaacGym implementation.
+This is the official implementation for
 
-## Overview
+- _*Composite Motion Learning with Task Control*_
+[[arXiv](https://arxiv.org/abs/2305.03286)]
+[[Youtube](https://youtu.be/mcRAxwoTh3E)]
+([SIGGRAPH'23](https://s2023.siggraph.org/presentation/?id=papers_763&sess=sess118), [TOG](https://dl.acm.org/doi/abs/10.1145/3592447))
 
-This conversion replaces IsaacGym with MuJoCo for physics simulation while maintaining the same reinforcement learning algorithms (PPO) and model architectures. The key changes include:
+- _*A GAN-Like Approach for Physics-Based Imitation Learning and Interactive Character Control*_
+[[arXiv](https://arxiv.org/abs/2105.10066)]
+[[Youtube](https://www.youtube.com/watch?v=VHMyvDD3B_o)]
+([SCA'21](https://www.youtube.com/watch?v=vPzpCarkm74), [PACMCGIT](https://dl.acm.org/doi/abs/10.1145/3480148))
 
-1. **Physics Engine**: Replaced IsaacGym with MuJoCo
-2. **Environment Interface**: Uses Gymnasium API instead of IsaacGym's custom API
-3. **Simulation**: CPU-based simulation (MuJoCo) instead of GPU-based (IsaacGym)
-4. **Rendering**: Uses MuJoCo's built-in renderer
+We also refer to the extended implementation
 
-## Files
+- _*AdaptNet: Policy Adaptation for Physics-Based Character Control*_
+[[arXiv](http://arxiv.org/abs/2310.00239)]
+[[Youtube](https://youtu.be/WxmJSCNFb28)]
+[[webpage](https://pei-xu.github.io/AdaptNet)]
+[[code](https://github.com/xupei0610/AdaptNet)]
+([SIGGRAPH Asia'23](https://asia.siggraph.org/2023/presentation/?id=papers_543&sess=sess120), [TOG](https://dl.acm.org/doi/10.1145/3618375))
 
-### Core Files (Modified for MuJoCo)
+- _*Synchronize Dual Hands for Physics-Based Dexterous Guitar Playing*_
+[[arXiv](https://arxiv.org/abs/2409.16629)]
+[[Youtube](https://www.youtube.com/watch?v=r_y0P2pIeF8&list=PLLfEynalFz6j0X5Kiut0U3GLRxt3Oz_oa)]
+[[webpage](https://pei-xu.github.io/guitar)]
+[[code](https://github.com/xupei0610/guitar)]
+([SIGGRAPH Asia'24](https://asia.siggraph.org/2024/presentation/?id=papers_1155&sess=sess150))
 
-- `env_mujoco.py` - MuJoCo-compatible environment base class set up
-- `env_iccgan.py` - MuJoCo-compatible environment for ICCGAN humanoid envs
-- `main.py` - Training and testing script
+- _*FürElise: Capturing and Physically Synthesizing Hand Motion of Piano Performance*_
+[[arXiv](https://arxiv.org/abs/2410.05791)]
+[[webpage](https://for-elise.github.io/)]
+([SIGGRAPH Asia'24](https://asia.siggraph.org/2024/presentation/?id=papers_1250&sess=sess129))
 
-### Core Files (Unchanged)
 
-- `models.py` - Actor-Critic and Discriminator models (no changes needed)
-- `utils.py` - Utility functions for quaternion operations (no changes needed)
-- `ref_motion.py` - Reference motion loading (no changes needed)
+![](doc/teaser_tennis.png)
 
-### Configuration
+![](doc/teaser_juggling.png)
 
-- `config/locomotion_walk_mujoco.py` - Example configuration file
-- `requirements.txt` - Python dependencies
+![](doc/teaser_aiming.png)
 
-## Installation
+![](doc/teaser_fight.png)
 
-1. Install MuJoCo (if not already installed):
-```bash
-pip install mujoco
-```
+## Code Usage
 
-2. Install Python dependencies:
-```bash
-pip install -r requirements.txt
-```
+### Dependencies
+- Pytorch 1.12
+- Mujuco
 
-## Usage
+We recommend to install all the requirements through Conda by
 
-### Training
+    $ conda create --name <env> --file requirements.txt -c pytorch -c conda-forge
 
-```bash
-python main.py config/locomotion_walk_mujoco.py --ckpt ./checkpoints/walk --device 0
-```
+Download Mujuco from the [official site](https://mujoco.org/) and install it via pip.
 
-### Testing/Visualization
+### Policy Training
 
-```bash
-python main.py config/locomotion_walk_mujoco.py --ckpt ./checkpoints/walk --test --render
-```
+    $ python main.py <configure_file> --ckpt <checkpoint_dir>
 
-### With Custom Config
+We provide our configure files in `config` folder for reference. To reproduce the examples shown in the paper, 
 
-```bash
-python main.py path/to/your/config.py --ckpt ./checkpoints/exp --device 0
-```
+e.g. `jaunty_walk, please run the training by
 
-## Key Differences from IsaacGym Version
+    $ python main.py config/iccgan/jaunty_walk.py --ckpt ./checkpoints/jaunty_walk
 
-### 1. Environment Class
+e.g. `Juggling+Walk`, please run the training by
 
-**IsaacGym (Original)**:
-```python
-from isaacgym import gymapi, gymtorch
-env = gymapi.acquire_gym()
-sim = env.create_sim(...)
-```
+    $ python main.py config/juggling+locomotion_walk.py --ckpt ./checkpoints/juggling+locomotion_walk
 
-**MuJoCo (This Version)**:
-```python
-import mujoco
-model = mujoco.MjModel.from_xml_path(xml_path)
-data = mujoco.MjData(model)
-```
+The training results (model and log) will be generated in the `current_folder/checkpoints/juggling+locomotion_walk` folder.
 
-### 2. Parallel Environments
+The training can be done on a single GPU. Use `--device` option to specify the device used for training (default: 0). All our results were obtained using machines equipped with Nvidia V100 or A100 GPU. 
 
-**IsaacGym**: Supports thousands of parallel environments on GPU
-**MuJoCo**: Supports fewer parallel environments (recommended: 32-128)
 
-### 3. Configuration Changes
+### Policy Evaluation
 
-In your config files, change:
-- `env_cls = "ICCGANHumanoidTarget"` → `env_cls = "ICCGANHumanoidMujoco"`
-- Reduce `num_envs` from 512 to 32-128
-- Adjust `batch_size` accordingly
+    $ python main.py <configure_file> --ckpt <checkpoint_dir> --test --render [optional]
 
-### 4. Performance Considerations
+- by default: without `--render` => render_mode = None
+- if `--render` set *const* (or) `--render non`=> render_mode = Non-Interactive rgb_array simulation using cv2
+- `--render int` => render_mode = Interactive mode with humanoid realtime simulation
 
-- **IsaacGym**: GPU-accelerated, can handle 1000+ parallel environments
-- **MuJoCo**: CPU-based, recommended 32-128 parallel environments
+We provide pretrained policy models in `pretrained` folder. To evaluate a pretrained policy, 
 
-## Supported Features
+e.g. `jaunty_walk`, please run
 
-### ✅ Implemented
+    $ python main.py config/iccgan/jaunty_walk.py --ckpt pretrained/iccgan/jaunty_walk --test --render int
+    
+e.g. `Juggling+Walk`, please run
 
-- [x] Basic humanoid locomotion
-- [x] ICCGAN observation function
-- [x] Discriminator-based reward
-- [x] PPO training
-- [x] Reference motion loading (JSON, YAML, joblib)
-- [x] Goal-conditioned tasks (target reaching)
-- [x] Rendering (RGB array mode)
+    $ python main.py config/juggling+locomotion_walk.py --ckpt pretrained/juggling+locomotion_walk --test --render
 
-### ⚠️ Partially Implemented
 
-- [ ] Multi-environment parallelization (limited by CPU)
-- [ ] Interactive viewer (basic support)
+## Motion Data Copyright
+We provide our motion data in `assets/motions`. 
 
-### ❌ Not Implemented
-
-- [ ] Juggling tasks (requires additional object spawning)
-- [ ] Aiming tasks (requires additional link tracking)
-- [ ] Real-time interactive control
-
-## Troubleshooting
-
-### Issue: "mujoco.MjModel.from_xml_path: XML parsing error"
-
-**Solution**: Ensure your XML file path is correct and the file exists. The path should be relative to where you run the script.
-
-### Issue: "RuntimeError: CUDA out of memory"
-
-**Solution**: Reduce `num_envs` in your config file. Try 32 or 64 instead of 512.
-
-### Issue: "ModuleNotFoundError: No module named 'mujoco'"
-
-**Solution**: Install MuJoCo: `pip install mujoco`
-
-### Issue: Slow training speed
-
-**Solution**: 
-- Reduce number of environments
-- Use a machine with better CPU performance
-- Consider using the original IsaacGym version if you have GPU access
-
-## Converting Your Own Configs
-
-To convert existing IsaacGym configs to MuJoCo:
-
-1. Copy your config file (e.g., `my_task.py`)
-2. Change `env_cls` to use MuJoCo version:
-   ```python
-   env_cls = "ICCGANHumanoidMujoco"  # or "ICCGANHumanoidTargetMujoco"
-   ```
-3. Add character model path:
-   ```python
-   env_params = dict(
-       character_model="assets/humanoid.xml",
-       # ... other params
-   )
-   ```
-4. Adjust training params:
-   ```python
-   training_params = dict(
-       num_envs=32,  # Reduce from 512
-       batch_size=64,  # Reduce from 256
-       # ... other params
-   )
-   ```
+The data labeled with `lafan1` are extracted from [Ubisoft LAFAN1 dataset](https://github.com/ubisoft/ubisoft-laforge-animation-dataset).
+The juggling motion is extracted from the demo provided by [FreeMoCap Project](https://github.com/freemocap/freemocap).
+We cannot provide the tennis motions shown in the paper due to the commercial license.
 
 ## Citation
 
-If you use this code, please cite the original CompositeMotion paper:
+If you use the code or provided motions for your work, please consider citing our papers:
 
-```bibtex
-@article{xu2023composite,
-  title={Composite Motion Learning with Task Control},
-  author={Xu, Pei and Cao, Zhenhua and Wang, Bohan and Shao, Tianyu and Yang, Libin and Zhou, Kun and Gao, Xiaogang},
-  journal={ACM Transactions on Graphics (TOG)},
-  volume={42},
-  number={4},
-  pages={1--14},
-  year={2023},
-  publisher={ACM New York, NY, USA}
-}
-```
+    @article{composite,
+        author = {Xu, Pei and Shang, Xiumin and Zordan, Victor and Karamouzas, Ioannis},
+        title = {Composite Motion Learning with Task Control},
+        journal = {ACM Transactions on Graphics},
+        publisher = {ACM New York, NY, USA},
+        year = {2023},
+        volume = {42},
+        number = {4},
+        doi = {10.1145/3592447},
+        keywords = {physics-based control, character animation, motion synthesis, reinforcement learning, multi-objective learning, incremental learning, GAN}
+    }
 
-## License
-
-This MuJoCo conversion maintains the same MIT license as the original CompositeMotion project.
-
-# CompositeMotion - MuJoCo Version (Fixed)
-
-This is a fixed and complete MuJoCo-compatible version of the CompositeMotion project, converted from the original IsaacGym implementation.
-
-## What's Fixed
-
-### 1. NaN Issue in Observations
-- Added `observe_iccgan_safe()` function that handles invalid quaternions
-- Properly initializes state history from reference motion
-- Added NaN detection and debugging in training loop
-
-### 2. Complete Config Replication
-All ICCGAN and composite motion configs from the original paper are included:
-
-**ICCGAN Simple Motions:**
-- `jaunty_walk.py` - Confident, swaggering walk
-- `joyful_walk.py` - Happy, energetic walk
-- `kick.py` - Martial arts kicking
-- `limp_walk.py` - Injured, limping gait
-- `long_jump.py` - Athletic jumping
-- `punch.py` - Boxing/martial arts punching
-- `roll.py` - Rolling/dodging motion
-- `spinning_jump.py` - Acrobatic spinning jump
-- `stomp_walk.py` - Heavy, forceful walking
-- `stoop_walk.py` - Hunched-over, elderly walking
-- `locomotion_crouch.py` - Crouched walking
-
-**Composite Motions:**
-- `aim_locomotion_walk.py` - Aiming while walking
-- `chest_open_locomotion_walk.py` - Chest expansion while walking
-- `front_jumping_jack_locomotion_walk.py` - Jumping jack arms while walking
-- `punch_locomotion_walk.py` - Punching while walking
-- `waist_twist_leg_lunge.py` - Waist twist with leg lunge
-
-**Goal-Conditioned Locomotion:**
-- `locomotion_walk.py` - Walking to target
-- `locomotion_run.py` - Running to target
-- `locomotion_walk_jaunty.py` - Jaunty walking to target
-
-## Installation
-
-```bash
-pip install mujoco gymnasium torch numpy scipy pyyaml tensorboard imageio matplotlib opencv-python
-```
-
-## Usage
-
-### 1. View Motions Before Training
-
-Preview the reference motions that will be used for training:
-
-```bash
-# View motions from a config file
-python motion_viewer.py config/iccgan/jaunty_walk.py --output motion_previews
-
-# Or directly view a motion file
-python motion_viewer.py assets/motions/iccgan/jaunty_walk.json --motion-only --output motion_previews
-```
-
-### 2. Train a Policy
-
-```bash
-# Train ICCGAN simple motion
-python main_mujoco.py config/iccgan/jaunty_walk.py --ckpt ./checkpoints/jaunty_walk --device 0
-
-# Train composite motion
-python main_mujoco.py config/iccgan/punch_locomotion_walk.py --ckpt ./checkpoints/punch_walk --device 0
-
-# Train goal-conditioned locomotion
-python main_mujoco.py config/locomotion_walk.py --ckpt ./checkpoints/locomotion_walk --device 0
-```
-
-### 3. Test/Evaluate a Policy
-
-```bash
-# Test with rendering
-python main_mujoco.py config/iccgan/jaunty_walk.py --ckpt ./checkpoints/jaunty_walk --test --render
-
-# Test without rendering
-python main_mujoco.py config/iccgan/jaunty_walk.py --ckpt ./checkpoints/jaunty_walk --test
-```
-
-### 4. Convert SMPL Data
-
-Convert SMPL-format motion capture data to CompositeMotion JSON format:
-
-```bash
-# Convert single file
-python smpl_converter.py path/to/motion.pkl --output output.json --fps 30
-
-# Batch convert directory
-python smpl_converter.py path/to/smpl_motions/ --output converted_motions/ --batch --fps 30
-```
-
-## File Structure
-
-```
-mujoco_v2/
-├── env_mujoco.py              # Main environment (FIXED)
-├── main_mujoco.py             # Training script (FIXED)
-├── models.py                  # Neural networks (from original)
-├── utils.py                   # Utilities (from original)
-├── ref_motion.py              # Motion loading (from original)
-├── motion_viewer.py           # Motion preview utility (NEW)
-├── smpl_converter.py          # SMPL converter (NEW)
-├── config/
-│   ├── iccgan/                # ICCGAN simple motion configs
-│   │   ├── jaunty_walk.py
-│   │   ├── joyful_walk.py
-│   │   ├── kick.py
-│   │   └── ... (all 10+ motions)
-│   ├── locomotion_walk.py     # Goal-conditioned walking
-│   ├── locomotion_run.py      # Goal-conditioned running
-│   └── locomotion_walk_jaunty.py
-├── assets/
-│   ├── humanoid.xml           # MuJoCo humanoid model
-│   └── motions/
-│       ├── iccgan/            # ICCGAN motion files
-│       └── clips_walk.yaml    # Motion clip configurations
-└── README.md
-```
-
-## Key Changes from Original
-
-### Environment Classes
-
-| Original (IsaacGym) | MuJoCo Version |
-|---------------------|----------------|
-| `ICCGANHumanoid` | `ICCGANHumanoidMujoco` |
-| `ICCGANHumanoidTarget` | `ICCGANHumanoidTargetMujoco` |
-
-### NaN Fix
-
-The main issue was that `state_hist` was initialized with zeros, causing NaN in quaternion operations. The fix:
-
-1. **Safe observation function** (`observe_iccgan_safe`):
-   ```python
-   # Replace invalid quaternions with identity
-   invalid_mask = quat_norms < 1e-6
-   quats = torch.where(invalid_mask, identity_quat, quats / quat_norms)
-   ```
-
-2. **Proper initialization**: State history is now properly initialized from reference motion
-
-3. **NaN detection**: Training loop now detects and reports NaN values
-
-## Training Parameters
-
-Default parameters (adjusted for MuJoCo CPU simulation):
-
-```python
-TRAINING_PARAMS = dict(
-    horizon=8,
-    num_envs=32,        # Reduced from 512 for CPU
-    batch_size=64,      # Reduced from 256
-    opt_epochs=5,
-    actor_lr=5e-6,
-    critic_lr=1e-4,
-    gamma=0.95,
-    lambda_=0.95,
-    disc_lr=1e-5,
-    max_epochs=10000,
-    save_interval=2000,
-    log_interval=50,
-    terminate_reward=-1,
-)
-```
-
-## Troubleshooting
-
-### NaN in Observations
-
-If you still see NaN values:
-1. Check that motion files are valid JSON
-2. Verify that the humanoid.xml matches the motion skeleton
-3. Check the reference motion viewer output
-
-### Slow Training
-
-MuJoCo is CPU-based, so training is slower than IsaacGym:
-- Use fewer environments (`num_envs=16` or `32`)
-- Consider using a machine with more CPU cores
-- The original IsaacGym version is recommended if you have GPU access
-
-### Motion File Not Found
-
-Make sure motion files are in the correct location:
-- ICCGAN motions: `assets/motions/iccgan/`
-- Clip configurations: `assets/motions/clips_*.yaml`
-
-## Citation
-
-If you use this code, please cite the original CompositeMotion paper:
-
-```bibtex
-@article{xu2023composite,
-  title={Composite Motion Learning with Task Control},
-  author={Xu, Pei and Cao, Zhenhua and Wang, Bohan and Shao, Tianyu and Yang, Libin and Zhou, Kun and Gao, Xiaogang},
-  journal={ACM Transactions on Graphics (TOG)},
-  volume={42},
-  number={4},
-  pages={1--14},
-  year={2023},
-  publisher={ACM New York, NY, USA}
-}
-```
-
-## License
-
-This MuJoCo conversion maintains the same MIT license as the original CompositeMotion project.
-
-## Additional Resources
-
-- Original paper: https://arxiv.org/abs/2305.03286
-- Original code: https://github.com/xupei0610/CompositeMotion
-- MuJoCo docs: https://mujoco.readthedocs.io/
-- Gymnasium docs: https://gymnasium.farama.org/
+    @article{iccgan,
+        author = {Xu, Pei and Karamouzas, Ioannis},
+        title = {A GAN-Like Approach for Physics-Based Imitation Learning and Interactive Character Control},
+        journal = {Proceedings of the ACM on Computer Graphics and Interactive Techniques},
+        publisher = {ACM New York, NY, USA},
+        year = {2021},
+        volume = {4},
+        number = {3},
+        pages = {1--22},
+        doi = {10.1145/3480148},
+        keywords = {physics-based control, character animation, reinforcement learning, GAN}
+    }

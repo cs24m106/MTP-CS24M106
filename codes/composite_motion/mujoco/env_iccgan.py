@@ -9,7 +9,7 @@ import numpy as np
 from ref_motion import ReferenceMotion
 from env_mujoco import MujocoEnv, DiscriminatorConfig
 
-class ICCGANHumanoidMujoco(MujocoEnv):
+class ICCGANHumanoid(MujocoEnv):
     """ICCGAN Humanoid environment for MuJoCo"""
     
     CHARACTER_MODEL = os.path.join("assets", "humanoid.xml")
@@ -44,19 +44,12 @@ class ICCGANHumanoidMujoco(MujocoEnv):
             if config.ob_horizon is None:
                 config.ob_horizon = self.ob_horizon + 1 # update configs with empty ob_horizon
             self.max_ob_horizon = max(self.max_ob_horizon, config.ob_horizon)
-
-        # Load reference motion BEFORE calling super().__init__
-        # This is needed to properly initialize state_hist
-        self._temp_motion_file = motion_file
-        self._temp_character_model = kwargs.get("character_model", self.CHARACTER_MODEL)
-        if isinstance(self._temp_character_model, str):
-            self._temp_character_model = [self._temp_character_model]
         
         # Setup state history --> will be done create_tensors(), that will be called from super.__init__
         super().__init__(*args, **kwargs)
         
         n_envs = self.n_envs
-        n_links = self.model.nbody
+        n_links = self.model.nbody - 1 # Exclude world body 
         n_dofs = self.model.nv
         
         # Setup contactable links
@@ -71,8 +64,12 @@ class ICCGANHumanoidMujoco(MujocoEnv):
             
             for link_name, h in contactable_links_dict.items():
                 if link_name in self.body_names:
-                    lid = self.body_names.index(link_name)
-                    contact[:, lid] = h
+                    lid = self.body_names.index(link_name)  # Index in body_names (includes world)
+                    # CHANGED: Adjust index to exclude world body
+                    if lid > 0:  # Skip world body
+                        contact[:, lid - 1] = h  # Subtract 1 to get link_tensor index
+                    else:
+                        print(f"[Warning] Skipping world body in contactable_links")
                 else:
                     print(f"[Warning] Unrecognized contactable link {link_name}")
             
@@ -198,7 +195,8 @@ class ICCGANHumanoidMujoco(MujocoEnv):
         """Create tensors with character-specific info"""
         super().create_tensors()
         
-        n_links = self.model.nbody
+        # n_links should be model.nbody - 1 (excluding world body)
+        n_links = self.model.nbody -1
         n_dofs = self.model.nv
         
         # Character-specific tensors
@@ -231,8 +229,9 @@ class ICCGANHumanoidMujoco(MujocoEnv):
             self.key_links = []
             for link_name in self.key_links_names:
                 if link_name in self.body_names:
-                    lid = self.body_names.index(link_name)
-                    self.key_links.append(lid)
+                    lid = self.body_names.index(link_name)        
+                    if lid > 0:  # Adjust for world body being at index 0 --> Skip if it's world body
+                        self.key_links.append(lid - 1)  # Subtract 1 to account for world body offset
         
         # Setup parent link
         if self.parent_link_name is None:
@@ -289,6 +288,11 @@ class ICCGANHumanoidMujoco(MujocoEnv):
             self.state_hist[:-1, env_ids] = self.state_hist[1:, env_ids].clone()
             self.state_hist[-1, env_ids] = self.char_link_tensor[env_ids].view(n_envs, -1)
         
+        if self.verbose and self.simulation_step % 100 == 0:
+            print(f"\n[Step {self.simulation_step}] OBS check:")
+            print(f"  Shape: {self.state_hist.shape}")
+            print(f"  Range: [{self.state_hist.min():.4f}, {self.state_hist.max():.4f}]")
+            print(f"  NaN/Inf: {torch.isnan(self.state_hist).any()} / {torch.isinf(self.state_hist).any()}")
         return self._observe_iccgan(env_ids)
     
     def _observe_iccgan(self, env_ids=None):
@@ -377,9 +381,16 @@ class ICCGANHumanoidMujoco(MujocoEnv):
         terminate = torch.any(torch.logical_and(contacted, too_low), -1)
         terminate *= (self.lifetime > 1)
         return terminate
+    
+    def reward(self):
+        """Optional feature for ICCGAN - use default for pretrained weights of composite_motion"""
+        # defualt 0 task rewards (rew_dim = 0) i.e. trained only on 1 discriminator
+        return super().reward()
+        # switch return statements if u want to add plain 1s for task based reward
+        #return torch.ones((self.n_envs, 1), dtype=torch.float32, device=self.device)
 
 
-class ICCGANHumanoidTargetMujoco(ICCGANHumanoidMujoco):
+class ICCGANHumanoidTarget(ICCGANHumanoid):
     """ICCGAN Humanoid with target reaching - for locomotion tasks"""
     
     GOAL_DIM = 2

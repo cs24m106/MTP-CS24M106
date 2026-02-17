@@ -1,6 +1,7 @@
 from typing import Optional, List, Union, Callable
 import gymnasium as gym
 import os, torch, mujoco
+import mujoco.viewer, time
 import numpy as np
 from gymnasium import spaces
 
@@ -27,7 +28,7 @@ class MujocoEnv(gym.Env):
     
     UP_AXIS = 2
     CHARACTER_MODEL = None
-    CAMERA_POS = 0, -4.5, 2.0
+    CAMERA_POS = 0, -4.5, 3.0
     CAMERA_FOLLOWING = True
     
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 30}
@@ -43,6 +44,7 @@ class MujocoEnv(gym.Env):
         graphics_device: Optional[int] = None,
         character_model: Optional[str] = None,
         render_mode: Optional[str] = None,
+        verbose: bool = False,
         **kwargs
     ):
         super().__init__()
@@ -57,6 +59,7 @@ class MujocoEnv(gym.Env):
         self.device = torch.device(f"cuda:{compute_device}" if torch.cuda.is_available() and compute_device >= 0 else "cpu")
         self.n_envs = n_envs
         self.render_mode = render_mode
+        self.verbose = verbose
         
         self.camera_pos = self.CAMERA_POS
         self.camera_following = self.CAMERA_FOLLOWING
@@ -74,6 +77,18 @@ class MujocoEnv(gym.Env):
         self.renderer = None
         if self.render_mode == "rgb_array":
             self.renderer = mujoco.Renderer(self.model, height=480, width=640)
+
+        # Passive interactive viewer (non-blocking) for human mode
+        self.viewer = None
+        if self.render_mode == "human":
+            try:
+                # launch_passive returns a viewer handle; non-blocking
+                self.viewer = mujoco.viewer.launch_passive(self.model, self.data)
+            except Exception as e:
+                # fall back gracefully (headless / platform issues)
+                print(f"[Warning] failed to launch passive viewer: {e}")
+                self.viewer = None
+
         
         # Get body and joint info
         self._setup_body_joint_info()
@@ -164,8 +179,8 @@ class MujocoEnv(gym.Env):
         # Root body (pelvis) is typically body 1 (0 is world)
         self.root_body_id = 1
         
-        print(f"\nBodies: {self.body_names}")
-        print(f"\nJoints: {self.joint_names}")
+        print(f"\nBodies({len(self.body_names)}): {self.body_names}")
+        print(f"\nJoints({len(self.joint_names)}): {self.joint_names}")
         print(f"\nActuated DOFs: {len(self.actuated_dof_ids)}")
     
     def eval(self):
@@ -176,7 +191,8 @@ class MujocoEnv(gym.Env):
 
     def create_tensors(self):
         """Create tensors for state tracking"""
-        n_bodies = self.model.nbody
+        # EXCLUDE world body (index 0)
+        n_bodies = self.model.nbody -1
         n_dofs = self.model.nv
         
         # Root state (position, orientation, linear vel, angular vel)
@@ -247,11 +263,14 @@ class MujocoEnv(gym.Env):
         
     def process_actions(self, actions):
         """Process actions from network"""
-        a = actions * self.action_scale + self.action_offset
+        a = actions * self.action_scale + self.action_offset  # Scale [1, 28]
+        
         if self.action_tensor is None:
-            return a
-        self.action_tensor[:, self.actuated_dofs] = a
-        return self.action_tensor
+            return a  # Return [1, 28] directly
+        
+        # Since actuated_dof_ids (28) != n_dofs (34), action_tensor is created
+        self.action_tensor[:, self.actuated_dofs] = a  # Put 28 values into DOF indices [6-33]
+        return self.action_tensor  # Return [1, 34] with zeros at indices [0-5]
     
     def _sync_state_from_mujoco(self, env_idx: int = 0):
         """Sync state from MuJoCo to tensors"""
@@ -270,10 +289,10 @@ class MujocoEnv(gym.Env):
         self.root_tensor[env_idx, 7:10] = torch.from_numpy(root_lin_vel)
         self.root_tensor[env_idx, 10:13] = torch.from_numpy(root_ang_vel)
         
-        # All link states
-        for i in range(self.model.nbody):
-            pos = data.xpos[i].copy()
-            quat = data.xquat[i].copy()
+        # All link states - except world body (skip index 0)
+        for i in range(self.model.nbody-1):
+            pos = data.xpos[i+1].copy()
+            quat = data.xquat[i+1].copy()
             quat_xyzw = np.array([quat[1], quat[2], quat[3], quat[0]])
             lin_vel = data.cvel[i, :3].copy()
             ang_vel = data.cvel[i, 3:].copy()
@@ -353,7 +372,7 @@ class MujocoEnv(gym.Env):
             # Skip world body (index 0) when assigning
             n_ref_links = ref_link_tensor.shape[1]
             self.root_tensor[0] = ref_link_tensor[0, 0]  # First body is root
-            self.link_tensor[0, 1:n_ref_links+1] = ref_link_tensor[0]  # Skip world body
+            self.link_tensor[0] = ref_link_tensor[0]  # Skip world body --> link_tensor already skipped it
             
             if self.action_tensor is None:
                 self.joint_tensor[0] = ref_joint_tensor[0]
@@ -416,7 +435,7 @@ class MujocoEnv(gym.Env):
         
         self.info["terminate"] = terminate
         self.obs = self._observe()
-        
+
         # Convert to numpy for gymnasium
         obs_np = self.obs.cpu().numpy()
         reward_np = rewards.cpu().numpy()
@@ -430,16 +449,24 @@ class MujocoEnv(gym.Env):
         """Apply actions to simulation"""
         actions = self.process_actions(actions)
         
-        if self.control_mode == "position":
-            # Position control - set actuator targets
-            for i, actuator_id in enumerate(range(min(len(self.actuated_dof_ids), self.model.nu))):
-                if i < actions.shape[-1]:
-                    self.data.ctrl[actuator_id] = actions[0, i].item()
-        elif self.control_mode == "torque":
-            # Torque control
-            for i, actuator_id in enumerate(range(min(len(self.actuated_dof_ids), self.model.nu))):
-                if i < actions.shape[-1]:
-                    self.data.ctrl[actuator_id] = actions[0, i].item()
+        if self.control_mode == "position" or self.control_mode == "torque":
+            if self.action_tensor is None:
+                # Simple case: actions already has shape [n_envs, n_actuators]
+                for i in range(min(self.model.nu, actions.shape[-1])):
+                    self.data.ctrl[i] = actions[0, i].item()
+            else:
+                # Complex case: actions has shape [n_envs, n_dofs]
+                # Need to extract values at actuated DOF indices (First 6 actuators get zeros from root DOFs!)
+                for i in range(self.model.nu):
+                    dof_id = self.actuated_dof_ids[i]  # ← FIX IS HERE!
+                    self.data.ctrl[i] = actions[0, dof_id].item()
+        
+        # Debug (after setting ctrl values)
+        if self.verbose and self.simulation_step % 100 == 0:
+            print(f"\n[Step {self.simulation_step}] CTRL check:")
+            print(f"  Ctrl values (first 10): {self.data.ctrl[:10]}")
+            print(f"  Joint pos (first 10): {self.data.qpos[6:6+10]}")
+            print(f"  Root height: {self.data.xpos[self.root_body_id][2]:.4f}")
     
     def _observe_single(self) -> torch.Tensor:
         """Observe single environment"""
@@ -481,21 +508,83 @@ class MujocoEnv(gym.Env):
         return root_z < 0.5  # Fallen if below 0.5m
     
     def reward(self):
-        """Compute rewards - to be overridden"""
-        return torch.ones((self.n_envs, 1), dtype=torch.float32, device=self.device)
+        """Compute rewards - no task reward for base class"""
+        return torch.ones((self.n_envs, 0), dtype=torch.float32, device=self.device)
     
     def render(self):
-        """Render environment"""
+        """
+        Render environment
+        mode: 
+            rgb_array --> off-screen rendering and returns numpy img
+            human --> interactive window / GUI that must be sync every simulation step
+
+        """
+        # Offscreen renderer -> return numpy frame
         if self.render_mode == "rgb_array":
-            if self.renderer is None:
+            if self.renderer is None: # lazy create if not present
                 self.renderer = mujoco.Renderer(self.model, height=480, width=640)
-            self.renderer.update_scene(self.data)
+
+            # ADDED: Set camera position for third-person view to follow character
+            if self.camera_following:
+                root_pos = self.data.xpos[self.root_body_id]
+                
+                # Update camera to look at character
+                # Find the tracking camera
+                cam_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_CAMERA, "track")
+                if cam_id >= 0:
+                    # Use the named camera
+                    self.renderer.update_scene(self.data, camera="track")
+                else:
+                    # Fallback: update_scene expects mjData (and optional camera arg)
+                    self.renderer.update_scene(self.data)
+                
+            # returns an (H,W,3) numpy array
             return self.renderer.render()
+        
+        # Human viewer -> show live window (non-blocking) and sync frame
         elif self.render_mode == "human":
-            # Use passive viewer
-            pass
+            # passive viewer mode: sync guarantees the viewer shows the latest step,
+            # but if someone calls render() explicitly we also sync.
+            if self.viewer is None:
+                try: # lazy-launch the passive viewer if it doesn't exist
+                    self.viewer = mujoco.viewer.launch_passive(self.model, self.data)
+                    # NEW: Set initial camera on first launch
+                    if self.viewer is not None:
+                        self.viewer.cam.lookat[:] = [0, 0, 1.0]  # Look at character
+                        self.viewer.cam.distance = 4.0  # Distance from lookat point
+                        self.viewer.cam.azimuth = 90  # Viewing angle
+                        self.viewer.cam.elevation = -15  # Slightly from above
+                except Exception as e:
+                    print(f"[Warning] failed to launch passive viewer in render(): {e}")
+                    return None
+            try: # sync the viewer so it displays the latest data from the just-run step()
+                # NEW: Update camera to follow character
+                if self.viewer is not None and self.camera_following:
+                    root_pos = self.data.xpos[self.root_body_id]
+                    self.viewer.cam.lookat[:] = root_pos
+                # Optional: if you want a stricter critical section while viewer reads data,
+                # you can wrap modifications in viewer.lock() in your step() (not done here).
+                self.viewer.sync()
+                # throttle so rendering roughly matches env fps
+                # step_time should be a simulation dt (sec) present in your env
+                # (simple sleep; acceptable for testing/visualization)
+                time.sleep(self.step_time)
+            except Exception as e:
+                print(f"[Warning] viewer.sync() in render() failed: {e}")
+        
+        return None
+
+
     
     def close(self):
         """Close environment"""
         if self.renderer is not None:
-            self.renderer.close()
+            try:
+                self.renderer.close()
+            except Exception:
+                pass
+        if self.viewer is not None:
+            try:
+                self.viewer.close()
+            except Exception:
+                pass

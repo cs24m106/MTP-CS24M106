@@ -1,24 +1,17 @@
-# ICCGAN: Jaunty Walk
-# Style: Confident, swaggering walk
-
-env_cls = "ICCGANHumanoidMujoco"
-
+env_cls = "ICCGANHumanoid"
 env_params = dict(
-    episode_length=300,
-    motion_file="assets/motions/iccgan/jaunty_walk.json",
-    character_model="assets/humanoid.xml",
+    episode_length = 300,
+    motion_file = "assets/motions/iccgan/jaunty_walk.json"
 )
 
 training_params = dict(
-    max_epochs=10000,
-    save_interval=2000,
-    terminate_reward=-1,
-    num_envs=32,  # Reduced for MuJoCo
-    batch_size=64,
+    max_epochs = 1000,
+    save_interval = 100,
+    terminate_reward = -1
 )
 
 discriminators = {
     "_/full": dict(
-        parent_link=None,
+        parent_link = None,
     )
 }

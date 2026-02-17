@@ -321,7 +321,7 @@ class ReferenceMotion():
                 dt, w
             ))
 
-            print("\t{:.4f}s, {:d} Hz, {:d} frames.\n".format(motion_len, fps, n_frames))
+            print("\t\t{:.4f}s, {:d} Hz, {:d} frames.".format(motion_len, fps, n_frames))
         return motions
 
     def sample(self, n, truncate_time=None):
