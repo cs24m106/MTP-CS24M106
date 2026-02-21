@@ -193,7 +193,8 @@ class MujocoEnv(gym.Env):
         """Create tensors for state tracking"""
         # EXCLUDE world body (index 0)
         n_bodies = self.model.nbody -1
-        n_dofs = self.model.nv
+        n_dofs = self.model.nv      # 34
+        n_joints = self.model.nu    # 28
         
         # Root state (position, orientation, linear vel, angular vel)
         self.root_tensor = torch.zeros((self.n_envs, 13), dtype=torch.float32, device=self.device)
@@ -202,7 +203,7 @@ class MujocoEnv(gym.Env):
         self.link_tensor = torch.zeros((self.n_envs, n_bodies, 13), dtype=torch.float32, device=self.device)
         
         # Joint states (position, velocity)
-        self.joint_tensor = torch.zeros((self.n_envs, n_dofs, 2), dtype=torch.float32, device=self.device)
+        self.joint_tensor = torch.zeros((self.n_envs, n_joints, 2), dtype=torch.float32, device=self.device)
         
         # Contact forces
         self.contact_force_tensor = torch.zeros((self.n_envs, n_bodies, 3), dtype=torch.float32, device=self.device)
@@ -236,7 +237,7 @@ class MujocoEnv(gym.Env):
                 if self.control_mode == "position":
                     action_lower.append(jnt_range[0])
                     action_upper.append(jnt_range[1])
-                    action_scale.append(2.0)
+                    action_scale.append(1.0)         # If action  scales are large (>1.0) ← change from 2.0 to 1.0 to match IsaacGym convention
                 else:  # torque control
                     # Get actuator force limits
                     actuator_id = -1
@@ -256,6 +257,12 @@ class MujocoEnv(gym.Env):
         
         action_offset = 0.5 * np.add(action_upper, action_lower)
         action_scale_arr = 0.5 * np.multiply(action_scale, np.subtract(action_upper, action_lower))
+
+        
+        if self.verbose:
+            print("\n[--Init--] setup_action_normalizer():")
+            print(f"  Action offset: {action_offset[:6]}")
+            print(f"  Action scale:  {action_scale_arr[:6]}")
         
         self.action_offset = torch.tensor(action_offset, dtype=torch.float32, device=self.device)
         self.action_scale = torch.tensor(action_scale_arr, dtype=torch.float32, device=self.device)
@@ -281,8 +288,11 @@ class MujocoEnv(gym.Env):
         root_quat = data.xquat[self.root_body_id].copy()  # [w, x, y, z] in MuJoCo
         # Convert to [x, y, z, w] format
         root_quat_xyzw = np.array([root_quat[1], root_quat[2], root_quat[3], root_quat[0]])
-        root_lin_vel = data.cvel[self.root_body_id, :3].copy()
-        root_ang_vel = data.cvel[self.root_body_id, 3:].copy()
+
+        # MuJoCo's cvel (body spatial velocity) layout is: [[← angular first →] [← linear second →]]
+        # cvel[body_id] = [ang_vel_x, ang_vel_y, ang_vel_z, lin_vel_x, lin_vel_y, lin_vel_z]                
+        root_ang_vel = data.cvel[self.root_body_id, :3].copy()
+        root_lin_vel = data.cvel[self.root_body_id, 3:].copy()
         
         self.root_tensor[env_idx, :3] = torch.from_numpy(root_pos)
         self.root_tensor[env_idx, 3:7] = torch.from_numpy(root_quat_xyzw)
@@ -291,47 +301,94 @@ class MujocoEnv(gym.Env):
         
         # All link states - except world body (skip index 0)
         for i in range(self.model.nbody-1):
-            pos = data.xpos[i+1].copy()
-            quat = data.xquat[i+1].copy()
+            body_id = i + 1              # ← was `i`, missing offset for world body
+            pos = data.xpos[body_id].copy()
+            quat = data.xquat[body_id].copy()
             quat_xyzw = np.array([quat[1], quat[2], quat[3], quat[0]])
-            lin_vel = data.cvel[i, :3].copy()
-            ang_vel = data.cvel[i, 3:].copy()
+            ang_vel = data.cvel[body_id, :3].copy()
+            lin_vel = data.cvel[body_id, 3:].copy()
             
             self.link_tensor[env_idx, i, :3] = torch.from_numpy(pos)
             self.link_tensor[env_idx, i, 3:7] = torch.from_numpy(quat_xyzw)
             self.link_tensor[env_idx, i, 7:10] = torch.from_numpy(lin_vel)
             self.link_tensor[env_idx, i, 10:13] = torch.from_numpy(ang_vel)
         
-        # Joint states
-        for i, dof_id in enumerate(range(self.model.nv)):
-            self.joint_tensor[env_idx, i, 0] = data.qpos[dof_id]
-            self.joint_tensor[env_idx, i, 1] = data.qvel[dof_id]
+        # Actuated joint positions from qpos[7:] and qvel[6:]
+        n_joints = self.model.nu  # 28
+        joint_pos = data.qpos[7:7+n_joints].copy()
+        joint_vel = data.qvel[6:6+n_joints].copy()
+        self.joint_tensor[env_idx, :n_joints, 0] = torch.from_numpy(joint_pos)
+        self.joint_tensor[env_idx, :n_joints, 1] = torch.from_numpy(joint_vel)
+
+        # Reset contact forces
+        self.contact_force_tensor[env_idx] = 0.0
+
+        # Accumulate contact forces from active contacts
+        for c in range(data.ncon):
+            contact = data.contact[c]
+            geom1_body = self.model.geom_bodyid[contact.geom1]
+            geom2_body = self.model.geom_bodyid[contact.geom2]
+            
+            # Get contact force in world frame
+            force = np.zeros(6)
+            mujoco.mj_contactForce(self.model, data, c, force)
+            force_vec = torch.from_numpy(force[:3]).float().to(self.device)
+            
+            # Add to both bodies involved (skipping world body 0)
+            for body_id in [geom1_body, geom2_body]:
+                if 0 < body_id < self.model.nbody:
+                    self.contact_force_tensor[env_idx, body_id - 1] += force_vec
     
     def _apply_state_to_mujoco(self, env_idx: int = 0):
-        """Apply state from tensors to MuJoCo"""
-        # Set root position and orientation
+        """Apply state from tensors to MuJoCo.
+        
+        qpos layout (35 total): [x, y, z, qw, qx, qy, qz,  joint_0 .. joint_27]
+                                  ←── root free joint ──→   ←── 28 actuated ──→
+        qvel layout (34 total): [vx, vy, vz, wx, wy, wz,  jvel_0 .. jvel_27]
+                                  ←── root (6 DOFs) ────→   ←── 28 actuated ──→
+        NOTE: qpos has 7 root entries but qvel only has 6 (no quaternion derivative).
+        """
+
+        # --- Root position & orientation ---
         root_pos = self.root_tensor[env_idx, :3].cpu().numpy()
         root_quat_xyzw = self.root_tensor[env_idx, 3:7].cpu().numpy()
-        # Convert to MuJoCo format [w, x, y, z]
-        root_quat = np.array([root_quat_xyzw[3], root_quat_xyzw[0], root_quat_xyzw[1], root_quat_xyzw[2]])
-        
-        # Find free joint (root joint)
+        # Convert from our [x, y, z, w] storage to MuJoCo's [w, x, y, z]
+        root_quat_wxyz = np.array([root_quat_xyzw[3], root_quat_xyzw[0],
+                                    root_quat_xyzw[1], root_quat_xyzw[2]])
+
+        # Find the free joint (root) and get its qpos address
         root_jnt_id = -1
         for i in range(self.model.njnt):
             if self.model.jnt_type[i] == mujoco.mjtJoint.mjJNT_FREE:
                 root_jnt_id = i
                 break
-        
-        if root_jnt_id >= 0:
-            qpos_adr = self.model.jnt_qposadr[root_jnt_id]
-            self.data.qpos[qpos_adr:qpos_adr+3] = root_pos
-            self.data.qpos[qpos_adr+3:qpos_adr+7] = root_quat
-        
-        # Set joint positions
-        for i, dof_id in enumerate(range(self.model.nv)):
-            if i < self.model.nv:
-                self.data.qpos[dof_id] = self.joint_tensor[env_idx, i, 0].item()
-                self.data.qvel[dof_id] = self.joint_tensor[env_idx, i, 1].item()
+
+        # Default: root starts at index 0 (standard for humanoid with a single free joint)
+        qpos_root_adr = self.model.jnt_qposadr[root_jnt_id] if root_jnt_id >= 0 else 0
+        # qvel for the free joint always has the same start index as qpos (both = 0 here),
+        # but qvel has 6 entries (not 7) so we keep a separate variable for clarity.
+        qvel_root_adr = qpos_root_adr  # same start index; 0 for standard humanoids
+
+        # Write root state into qpos[0:7] and qvel[0:6]
+        self.data.qpos[qpos_root_adr  :qpos_root_adr+3] = root_pos        # x,y,z
+        self.data.qpos[qpos_root_adr+3:qpos_root_adr+7] = root_quat_wxyz  # w,x,y,z
+        self.data.qvel[qvel_root_adr  :qvel_root_adr+3] = self.root_tensor[env_idx, 7:10].cpu().numpy()   # lin vel
+        self.data.qvel[qvel_root_adr+3:qvel_root_adr+6] = self.root_tensor[env_idx, 10:13].cpu().numpy() # ang vel
+        # ↑ NOTE: qvel root slice ends at +6 (not +7) — free joint contributes 6 DOFs to qvel, 7 to qpos.
+
+        if self.verbose and self.simulation_step % 100 == 0:
+            print(f"\n[Step {self.simulation_step}] _apply_state_to_mujoco():")
+            print(f"  Root Joint Id: {root_jnt_id}, qpos_adr: {qpos_root_adr}")
+            print(f"  env_idx={env_idx}, root_tensor.shape={self.root_tensor.shape}")
+
+        # --- Actuated joint positions & velocities ---
+        # joint_tensor has shape (n_envs, n_joints=28, 2) → local indices 0..27
+        # These map directly to qpos[7:35] and qvel[6:34] (right after the free-joint root entries)
+        n_joints = self.model.nu  # 28 actuated joints
+        joint_pos = self.joint_tensor[env_idx, :n_joints, 0].cpu().numpy()  # (28,)
+        joint_vel = self.joint_tensor[env_idx, :n_joints, 1].cpu().numpy()  # (28,)
+        self.data.qpos[qpos_root_adr+7 : qpos_root_adr+7+n_joints] = joint_pos  # qpos[7:35]
+        self.data.qvel[qvel_root_adr+6 : qvel_root_adr+6+n_joints] = joint_vel  # qvel[6:34]
     
     def reset(self, seed=None, options=None):
         """Reset environment"""
@@ -365,24 +422,26 @@ class MujocoEnv(gym.Env):
     def reset_envs(self, env_ids):
         """Reset specific environments"""
         ref_link_tensor, ref_joint_tensor = self.init_state(env_ids)
-        
-        # For single environment, just use the first entry
-        if self.n_envs == 1:
-            # ref_link_tensor doesn't include world body, but link_tensor does
-            # Skip world body (index 0) when assigning
-            n_ref_links = ref_link_tensor.shape[1]
-            self.root_tensor[0] = ref_link_tensor[0, 0]  # First body is root
-            self.link_tensor[0] = ref_link_tensor[0]  # Skip world body --> link_tensor already skipped it
-            
-            if self.action_tensor is None:
-                self.joint_tensor[0] = ref_joint_tensor[0]
-            else:
-                self.joint_tensor[0, self.actuated_dofs] = ref_joint_tensor[0]
-            
-            # Apply to MuJoCo
-            self._apply_state_to_mujoco(0)
+        # For each env in env_ids, apply the ref state.
+        # ref_link_tensor : (n, n_bodies, 13)  — link poses/vels from reference motion
+        # ref_joint_tensor: (n, n_joints, 2)   — joint pos/vel, n_joints == model.nu == 28
+        n = len(env_ids)
+        for k, env_id in enumerate(env_ids):
+            self.root_tensor[env_id] = ref_link_tensor[k, 0]   # pelvis (body 0 in link_tensor = body 1 in MuJoCo)
+            self.link_tensor[env_id] = ref_link_tensor[k]       # world body already excluded from link_tensor
+
+            # joint_tensor has shape (n_envs, n_joints=28, 2).
+            # ref_joint_tensor[k] is (n_joints, 2) — direct assignment, no DOF-address remapping needed.
+            # (self.actuated_dofs holds raw DOF addresses [6..33] — valid only for indexing qpos/qvel,
+            #  NOT for indexing joint_tensor which uses compact 0-based joint indices.)
+            n_ref_joints = ref_joint_tensor.shape[1]  # usually 28; clamp if motion file differs
+            n_store = min(n_ref_joints, self.joint_tensor.shape[1])
+            self.joint_tensor[env_id, :n_store] = ref_joint_tensor[k, :n_store]
+
+            # Write tensors back into MuJoCo data and run a kinematics update
+            self._apply_state_to_mujoco(env_id.item() if hasattr(env_id, 'item') else env_id)
             mujoco.mj_forward(self.model, self.data)
-        
+
         self.lifetime[env_ids] = 0
     
     def init_state(self, env_ids):
@@ -453,7 +512,7 @@ class MujocoEnv(gym.Env):
             if self.action_tensor is None:
                 # Simple case: actions already has shape [n_envs, n_actuators]
                 for i in range(min(self.model.nu, actions.shape[-1])):
-                    self.data.ctrl[i] = actions[0, i].item()
+                    self.data.ctrl[i] = actions[0, i].item()                # ← always uses env 0's action
             else:
                 # Complex case: actions has shape [n_envs, n_dofs]
                 # Need to extract values at actuated DOF indices (First 6 actuators get zeros from root DOFs!)

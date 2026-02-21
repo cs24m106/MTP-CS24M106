@@ -72,6 +72,10 @@ The training results (model and log) will be generated in the `current_folder/ch
 
 The training can be done on a single GPU. Use `--device` option to specify the device used for training (default: 0). All our results were obtained using machines equipped with Nvidia V100 or A100 GPU. 
 
+After Trainning, you can view the run's logs made by tensorboard summary writter via cmd like:
+
+    $ tensorboard --logdir=./checkpoints/jaunty_walk
+
 
 ### Policy Evaluation
 
@@ -91,6 +95,38 @@ e.g. `Juggling+Walk`, please run
 
     $ python main.py config/juggling+locomotion_walk.py --ckpt pretrained/juggling+locomotion_walk --test --render
 
+
+### Understanding the Scores in the Code
+
+These scores are calculated using a **Hinge Loss** variation with a **Gradient Penalty (GP)** to ensure training stability:
+
+* **`score_real` (Expert/Reference Motion):** This is the discriminator's output when viewing the expert motion capture data (`ref`). In the code, `loss_r = relu(1 - score_r).mean()`. A "good" `score_real` is typically positive and high (approaching or exceeding 1.0), meaning the discriminator correctly identifies the expert data as highly realistic.
+
+
+* **`score_fake` (Generated/Policy Motion):** This is the score for the motion produced by your learning policy (`ob`). The code uses `loss_f = relu(1 + score_f).mean()`. A "good" `score_fake` for the discriminator is a very low/negative value (approaching -1.0), while for the **Generator (the policy)**, a "good" score is one that is high/positive, successfully "fooling" the discriminator into thinking the fake motion is real.
+
+According to the research framework, good progress is marked by the following trends across epochs:
+
+* **Convergence toward Zero (Equilibrium):** In a stable GAN training loop, the discriminator and policy reach a point where the discriminator can no longer easily distinguish between them. You should see `score_real` and `score_fake` begin to oscillate around a stable range rather than one side completely dominating.
+
+
+* **Rising `score_fake` over Epochs:** Early in training, `score_fake` will be very low (negative) as the character's movement is erratic. As learning progresses, `score_fake` should increase toward the level of `score_real`, indicating the policy is producing more life-like, "expert-quality" motions.
+
+
+* **Consistency across Decoupled Discriminators:** Since the paper uses **multiple discriminators** for different body parts (e.g., upper-body vs. lower-body), good progress is indicated when both sets of scores (`score_real/upper` and `score_real/lower`) show similar stability. If one discriminator has a near-zero loss while the other is very high, it suggests the model is failing to balance the composite motion.
+
+* **Discriminator Collapse:** If `score_real` stays near 1.0 and `score_fake` stays near -1.0 indefinitely, the discriminator is too strong, and the policy is not learning anything new (vanishing gradients).
+
+
+* **Policy Collapse (Mode Collapse):** If `score_fake` suddenly spikes to a very high value but the character's **Lifetime** or **Task Reward** (logged in your code) drops, the policy may have found a "cheat" to fool the discriminator without actually performing the task.
+
+**Summary Table of Progress Indicators:**
+
+| Metric | Start of Training | Good Progress | Bad Progress (Failure) |
+| --- | --- | --- | --- |
+| **`score_real`** | High (~1.0) | Stable High (>0) | Drops to 0 (Discriminator is confused) |
+| **`score_fake`** | Very Low (<-1.0) | Rising toward `score_real` | Stays at -1.0 (Policy not learning) |
+| **Lifetime** | Low | Increasing/Maximizing | Decreasing/Stagnant |
 
 ## Motion Data Copyright
 We provide our motion data in `assets/motions`. 
