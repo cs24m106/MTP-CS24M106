@@ -68,7 +68,8 @@ np.set_printoptions(linewidth=120, suppress=True, precision=6, sign=' ', floatmo
 
 TRAINING_PARAMS = dict(
     horizon = 8,        # each PPO epoch (one buffer fill) takes 8 env steps.
-    num_envs = 1,       # only one env setup done for now (scaleablity need to do in future)
+    num_envs = 32,       # 32*8 = 256 --> single batch produced
+    simulation_speed = 120, # physics simulation running at 120 hz as per paper
     batch_size = 256,
     opt_epochs = 5,
     actor_lr = 5e-6,
@@ -77,9 +78,11 @@ TRAINING_PARAMS = dict(
     lambda_ = 0.95,
     disc_lr = 1e-5,
     max_epochs = 10000, # 10000 iterations / 8 per PPO epoch = 125 PPO epochs --> in each training loop
-    save_interval = None,
+    save_interval = 500,
     log_interval = 10,
-    terminate_reward = -1,
+    terminate_reward = -5,    # FIX BUG5: was -1. With disc_reward≈-0.5/step, falling immediately (V=-1) was
+                              # ALWAYS better than surviving 5+ steps (V=-3.6). Policy learned to fall faster.
+                              # With -5: surviving 8 steps at -0.5/step = V≈-3.8 > -5 → survival is rewarded.
     control_mode="position",
     character_model=os.path.join("assets", "humanoid.xml"),
     # update xml for differ model simulations, but make sure no.of body parts are same
@@ -90,27 +93,29 @@ def safe_load_model(model, weights_file):
     print(f"Loading weights from {weights_file} ...")
     state = torch.load(weights_file, map_location=next(model.parameters()).device)
     load_match_success = True
-
-    # First try strict load (preferred) and give a helpful error if it fails
+    
     try:
         model.load_state_dict(state["model"])
-        print("Model loaded(strict=True) sucessfully!")
-        # If norm is very small (< 0.1), weights might not have loaded
-        first_param = next(model.parameters())
-        print(f"Model check: device={first_param.device}, norm={first_param.norm().item():.4f}")
+        print("Model loaded (strict=True) successfully!")
     except RuntimeError as e:
-        # Show the error and try safe fallback
-        print("Strict load failed (expected when architectures differ).")
-        print("RuntimeError:", e)
-        # Print env-derived dims for comparison
-        print(f"\nCurrent env properties: ob_dim: {env.ob_dim}, ob_horizon: {env.ob_horizon}, state_dim: {env.state_dim},", end=" ")
-        print(f"goal_dim: {env.goal_dim}, rew_dim: {env.rew_dim}, disc_dim: {getattr(env, 'disc_dim', None)},", end=" ")
-        print(f"  discriminators keys: {list(env.discriminators.keys()) if hasattr(env, 'discriminators') else None}, model value_dim: {len(env.discriminators) + env.rew_dim}")
-        print("\nAttempting load_state_dict(..., strict=False) to load matching keys and report mismatches ...", end= " ")
-        missing, unexpected = model.load_state_dict(state["model"], strict=False)
-        print("load_state_dict(strict=False) completed.")
-        print(">>> UNEXPECTED keys in current model (present in checkpoint but not used):", sorted(list(unexpected)))
-        print(">>> MISSING keys in current model (these keys were not loaded because shapes differ or absent):", sorted(list(missing)))
+        print("Strict load failed:", e)
+        # Build a compatible state dict: only load keys with matching shapes
+        current_state = model.state_dict()
+        compat_state = {}
+        missing, shape_mismatch, loaded = [], [], []
+        for k, v in state["model"].items():
+            if k not in current_state:
+                missing.append(k)
+            elif v.shape != current_state[k].shape:
+                shape_mismatch.append(f"{k}: ckpt={v.shape} vs model={current_state[k].shape}")
+            else:
+                compat_state[k] = v
+                loaded.append(k)
+        current_state.update(compat_state)
+        model.load_state_dict(current_state)
+        print(f"Loaded {len(loaded)} matching keys.")
+        print(f"Shape mismatches (skipped): {shape_mismatch}")
+        print(f"Missing keys (skipped): {missing}")
         load_match_success = False
     
     print()
@@ -129,8 +134,34 @@ def load_latest_checkpoint(model, ckpt_dir):
     model_state = torch.load(weights_file, map_location=next(model.parameters()).device)
     model.load_state_dict(model_state["model"])
     print(f"Resuming from prev ckpt-{prev_epochs} ... Load successful :-)")
-    
     return prev_epochs
+
+    # --- Robust checkpoint path logic ---
+def get_ckpt_dir_and_weights_file(ckpt_path, config_path):
+    config_base = os.path.splitext(os.path.basename(config_path))[0]
+    ckpt_path = os.path.normpath(ckpt_path)
+    last_folder = os.path.basename(ckpt_path)
+    if os.path.exists(ckpt_path):
+        if os.path.isfile(ckpt_path):
+            ckpt_dir = os.path.dirname(ckpt_path)
+            weights_file = ckpt_path
+        else:
+            ckpt_dir = ckpt_path
+            if last_folder != config_base:
+                ckpt_dir = os.path.join(ckpt_dir, config_base)
+            weights_file = os.path.join(ckpt_dir, "ckpt")
+    else:
+        if ("ckpt" in last_base): # given path to file that doesnt exist
+            ckpt_dir = os.path.dirname(ckpt_path)
+            weights_file = ckpt_path
+        else: # treat as directory and apply config_base logic
+            ckpt_dir = ckpt_path
+            if last_folder != config_base:
+                ckpt_dir = os.path.join(ckpt_dir, config_base)
+            weights_file = os.path.join(ckpt_dir, "ckpt")
+    os.makedirs(ckpt_dir, exist_ok=True)
+    return ckpt_dir, weights_file
+
 
 if __name__ == "__main__":
     # Load config
@@ -183,6 +214,7 @@ if __name__ == "__main__":
         discriminators=discriminators,
         compute_device=settings.device,
         render_mode=render_mode,
+        run_speed=training_params.simulation_speed,
         verbose = settings.verbose,
         **config.env_params
     )
@@ -200,21 +232,7 @@ if __name__ == "__main__":
     discriminators.to(device)
     model.discriminators = discriminators
 
-    if os.path.exists(os.path.join(settings.ckpt)):
-        # Set weights_file --> model save file, settings.ckpt --> folder containing the save file
-        weights_file = None
-        if os.path.isdir(settings.ckpt):
-            weights_file = os.path.join(settings.ckpt, "ckpt")
-        else:
-            weights_file = settings.ckpt
-            settings.ckpt = os.path.dirname(weights_file)
-    else:
-        if (os.path.splitext(settings.ckpt)[1]): # given path to file that doesnt exist
-            weights_file = settings.ckpt
-            settings.ckpt = os.path.dirname(weights_file)
-        else:
-            weights_file = os.path.join(settings.ckpt, "ckpt")
-        os.makedirs(settings.ckpt, exist_ok=True) # make sure the checkpoint folder exists
+    settings.ckpt, weights_file = get_ckpt_dir_and_weights_file(settings.ckpt, settings.config)
 
     if settings.test:
         load_success = False
@@ -222,13 +240,11 @@ if __name__ == "__main__":
             load_success = safe_load_model(model, weights_file)
         if not load_success:
             print(f"WARNING! Unable to Load model (using random weights) from path(exists?{os.path.exists(weights_file)}) : {settings.ckpt}\n")
-            os.makedirs(settings.ckpt, exist_ok=True)
-        
         test(env, model, settings.ckpt)
     else:
         import shutil
         from datetime import datetime
         #shutil.copy(settings.config, settings.ckpt) # uncomment to copy config onto checkpoints folder for ease of access
-        with open(os.path.join(settings.ckpt, "commands.txt"), "a") as f: # keep track of cmds
+        with open(os.path.join(settings.ckpt, "cmds.txt"), "a") as f: # keep track of cmds
             f.write(f"{datetime.now()} \"{" ".join(sys.argv)}\"\n")
         train(env, model, settings.ckpt, training_params, init_epoch = load_latest_checkpoint(model, settings.ckpt))

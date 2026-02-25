@@ -62,11 +62,11 @@ We provide our configure files in `config` folder for reference. To reproduce th
 
 e.g. `jaunty_walk, please run the training by
 
-    $ python main.py config/iccgan/jaunty_walk.py --ckpt ./checkpoints/jaunty_walk
+    $ python main.py config/iccgan/jaunty_walk.py --ckpt checkpoints/jaunty_walk
 
 e.g. `Juggling+Walk`, please run the training by
 
-    $ python main.py config/juggling+locomotion_walk.py --ckpt ./checkpoints/juggling+locomotion_walk
+    $ python main.py config/juggling+locomotion_walk.py --ckpt checkpoints/juggling+locomotion_walk
 
 The training results (model and log) will be generated in the `current_folder/checkpoints/juggling+locomotion_walk` folder.
 
@@ -74,7 +74,7 @@ The training can be done on a single GPU. Use `--device` option to specify the d
 
 After Trainning, you can view the run's logs made by tensorboard summary writter via cmd like:
 
-    $ tensorboard --logdir=./checkpoints/jaunty_walk
+    $ tensorboard --logdir=checkpoints/jaunty_walk
 
 
 ### Policy Evaluation

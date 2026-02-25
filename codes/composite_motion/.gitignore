@@ -4,4 +4,12 @@ outputs/
 **/__pycache__/
 
 **/assets/
-**/checkpoints/
+
+# ignore tensorboard summary writter files
+**.out**
+# ignore ckpt moel save files
+**ckpt**
+# ignore command history file
+**cmds**
+# ignore env simulation outputs
+**/env*/

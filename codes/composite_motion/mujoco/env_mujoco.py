@@ -4,6 +4,8 @@ import os, torch, mujoco
 import mujoco.viewer, time
 import numpy as np
 from gymnasium import spaces
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 
 class DiscriminatorConfig(object):
@@ -36,7 +38,7 @@ class MujocoEnv(gym.Env):
     def __init__(self,
         n_envs: int = 1,
         fps: int = 30,
-        frameskip: int = 2,
+        run_speed: int = 120, # simulation frequency (hz)
         episode_length: Optional[Union[Callable, int]] = 300,
         control_mode: str = "position",
         substeps: int = 2,
@@ -45,13 +47,15 @@ class MujocoEnv(gym.Env):
         character_model: Optional[str] = None,
         render_mode: Optional[str] = None,
         verbose: bool = False,
+        workers: int = 4,
         **kwargs
     ):
         super().__init__()
         
         assert control_mode in ["position", "torque", "free"]
-        self.frameskip = frameskip
-        self.fps = fps
+        self.run_speed = run_speed
+        self.fps = fps  # update from ref motion if not passed
+        self.frameskip = int(run_speed/fps) # fps * frame skip = simulation freq
         self.step_time = 1.0 / self.fps
         self.substeps = substeps
         self.control_mode = control_mode
@@ -60,6 +64,7 @@ class MujocoEnv(gym.Env):
         self.n_envs = n_envs
         self.render_mode = render_mode
         self.verbose = verbose
+        if verbose: print(f"[MujucoEnv] initiallized for [sim_speed:{self.run_speed}, fps:{self.fps}], [frameskip:{self.frameskip}, step_time:{self.step_time}]")
         
         self.camera_pos = self.CAMERA_POS
         self.camera_following = self.CAMERA_FOLLOWING
@@ -70,9 +75,13 @@ class MujocoEnv(gym.Env):
         
         # Load MuJoCo model
         self._load_mujoco_model()
-        # Create data
-        self.data = mujoco.MjData(self.model)
-        
+        # Create one MjData per environment (vectorized simulation)
+        self.data_list = [mujoco.MjData(self.model) for _ in range(n_envs)]
+        self.data = self.data_list[0]  # alias: used by viewer/renderer (always tracks env 0)
+        # thread parallelism for every env
+        self.executor = ThreadPoolExecutor(max_workers=n_envs)
+        if verbose: print(f"[ParallelStepper] initiallized for {n_envs} envs but sys handles only {min(n_envs, os.cpu_count() or 4)} threads max!")
+
         # Setup rendering
         self.renderer = None
         if self.render_mode == "rgb_array":
@@ -103,6 +112,9 @@ class MujocoEnv(gym.Env):
             exc_type, exc_value, exc_traceback = sys.exc_info() # Get exception info
             traceback.print_exception(exc_type, exc_value, exc_traceback) # Format and print the traceback
 
+    
+    def __del__(self):
+        self.executor.shutdown(wait=False)
 
     def setup_state_spaces(self):
         """ 
@@ -152,7 +164,7 @@ class MujocoEnv(gym.Env):
             xml_path = os.path.join(os.path.dirname(__file__), xml_path)
         
         self.model = mujoco.MjModel.from_xml_path(xml_path)
-        self.model.opt.timestep = self.step_time / self.frameskip
+        self.model.opt.timestep = 1/self.run_speed # defualt: (1/30=fps)/2=frameskip = 16.7ms → 60Hz physics
         
     def _setup_body_joint_info(self):
         """Setup body and joint information from MuJoCo model"""
@@ -279,42 +291,145 @@ class MujocoEnv(gym.Env):
         self.action_tensor[:, self.actuated_dofs] = a  # Put 28 values into DOF indices [6-33]
         return self.action_tensor  # Return [1, 34] with zeros at indices [0-5]
     
-    def _sync_state_from_mujoco(self, env_idx: int = 0):
-        """Sync state from MuJoCo to tensors"""
-        data = self.data
-        
-        # Root state (body 1 is typically pelvis)
-        root_pos = data.xpos[self.root_body_id].copy()
-        root_quat = data.xquat[self.root_body_id].copy()  # [w, x, y, z] in MuJoCo
-        # Convert to [x, y, z, w] format
-        root_quat_xyzw = np.array([root_quat[1], root_quat[2], root_quat[3], root_quat[0]])
 
+    def _sync_state_from_mujoco(self, env_idx: int = None):
+        """Sync state from MuJoCo to tensors.
+        If env_idx is None (default), syncs ALL environments using vectorized numpy ops.
+        If env_idx is given, syncs only that environment (fallback to single logic).
+        """
+        if env_idx is not None:
+            # Fallback to original single-env logic if specific index requested
+            self._sync_single_env_from_mujoco(env_idx)
+            return
+
+        # --- VECTORIZED PATH (All Environments) ---
+        n_envs = self.n_envs
+        n_bodies = self.model.nbody
+        n_joints = self.model.nu
+        
+        # 1. Stack raw numpy data from all environments at once
+        # This is the core parallelization step: minimizing Python overhead
+        all_xpos = np.stack([data.xpos for data in self.data_list])       # [n_envs, n_bodies, 3]
+        all_xquat = np.stack([data.xquat for data in self.data_list])     # [n_envs, n_bodies, 4] (wxyz)
+        all_cvel = np.stack([data.cvel for data in self.data_list])       # [n_envs, n_bodies, 6] (ang, lin)
+        all_qpos = np.stack([data.qpos for data in self.data_list])       # [n_envs, nq]
+        all_qvel = np.stack([data.qvel for data in self.data_list])       # [n_envs, nv]
+
+        # 2. Process Root State
+        # Extract root body data (assuming self.root_body_id is consistent across envs)
+        root_pos = all_xpos[:, self.root_body_id, :]                      # [n_envs, 3]
+        root_quat_wxyz = all_xquat[:, self.root_body_id, :]               # [n_envs, 4]
+        root_cvel = all_cvel[:, self.root_body_id, :]                     # [n_envs, 6]
+
+        # Transform Quaternion: MuJoCo [w,x,y,z] -> Target [x,y,z,w]
+        root_quat_xyzw = root_quat_wxyz[:, [1, 2, 3, 0]]
+        
+        # Transform Velocity: MuJoCo [ang(0:3), lin(3:6)] -> Target [lin, ang]
+        root_lin_vel = root_cvel[:, 3:6]
+        root_ang_vel = root_cvel[:, 0:3]
+
+        # Assign to root_tensor [n_envs, 13]
+        # Layout: pos(3), quat(4), lin_vel(3), ang_vel(3)
+        self.root_tensor[:, :3]    = torch.from_numpy(root_pos).float().to(self.device)
+        self.root_tensor[:, 3:7]   = torch.from_numpy(root_quat_xyzw).float().to(self.device)
+        self.root_tensor[:, 7:10]  = torch.from_numpy(root_lin_vel).float().to(self.device)
+        self.root_tensor[:, 10:13] = torch.from_numpy(root_ang_vel).float().to(self.device)
+
+        # 3. Process Link States (Skip world body 0)
+        # Source logic: range(self.model.nbody - 1), body_id = i + 1
+        # Vectorized: Slice [:, 1:, :]
+        link_pos = all_xpos[:, 1:, :]                                     # [n_envs, n_bodies-1, 3]
+        link_quat_wxyz = all_xquat[:, 1:, :]                              # [n_envs, n_bodies-1, 4]
+        link_cvel = all_cvel[:, 1:, :]                                    # [n_envs, n_bodies-1, 6]
+
+        # Transform Quaternion
+        link_quat_xyzw = link_quat_wxyz[..., [1, 2, 3, 0]]
+        
+        # Transform Velocity
+        link_lin_vel = link_cvel[..., 3:6]
+        link_ang_vel = link_cvel[..., 0:3]
+
+        # Assign to link_tensor [n_envs, n_bodies-1, 13]
+        self.link_tensor[:, :, :3]    = torch.from_numpy(link_pos).float().to(self.device)
+        self.link_tensor[:, :, 3:7]   = torch.from_numpy(link_quat_xyzw).float().to(self.device)
+        self.link_tensor[:, :, 7:10]  = torch.from_numpy(link_lin_vel).float().to(self.device)
+        self.link_tensor[:, :, 10:13] = torch.from_numpy(link_ang_vel).float().to(self.device)
+
+        # 4. Process Joint States
+        # Source logic: qpos[7:7+n_joints], qvel[6:6+n_joints]
+        joint_pos = all_qpos[:, 7:7+n_joints]                             # [n_envs, n_joints]
+        joint_vel = all_qvel[:, 6:6+n_joints]                             # [n_envs, n_joints]
+
+        # Assign to joint_tensor [n_envs, n_joints, 2]
+        self.joint_tensor[:, :, 0] = torch.from_numpy(joint_pos).float().to(self.device)
+        self.joint_tensor[:, :, 1] = torch.from_numpy(joint_vel).float().to(self.device)
+
+        # 5. Process Contact Forces (Iterative)
+        # Logic maintained: ncon varies per env, mj_contactForce requires specific MjData
+        self.contact_force_tensor[:] = 0.0
+        
+        # We still need to loop for contacts as ncon is dynamic per environment
+        for e_idx in range(n_envs):
+            data = self.data_list[e_idx]
+            for c in range(data.ncon):
+                contact = data.contact[c]
+                geom1_body = self.model.geom_bodyid[contact.geom1]
+                geom2_body = self.model.geom_bodyid[contact.geom2]
+                
+                # Get contact force in world frame
+                force = np.zeros(6)
+                mujoco.mj_contactForce(self.model, data, c, force)
+                force_vec = torch.from_numpy(force[:3]).float().to(self.device)
+                
+                # Add to both bodies involved (skipping world body 0)
+                # Logic maintained: 0 < body_id < self.model.nbody
+                for body_id in [geom1_body, geom2_body]:
+                    if 0 < body_id < n_bodies:
+                        self.contact_force_tensor[e_idx, body_id - 1] += force_vec
+
+        # 6. Verbose Logging (Maintain logic for env_idx 0)
+        if self.verbose and self.simulation_step % 100 == 0:
+            # In vectorized mode, we debug-check all env 
+            root_h = self.root_tensor[:, 2].detach().cpu().numpy()
+            print(f"\n[Step {self.simulation_step}] Sync env-all (vectorized): root_h_vec={root_h}")
+
+
+    def _sync_single_env_from_mujoco(self, env_idx: int):
+        """Sync a single environment's state from its MjData to tensors"""
+        data = self.data_list[env_idx]
+
+        # --- Root state from xpos/xquat (more reliable than qpos after mj_step) ---
+        root_pos       = data.xpos[self.root_body_id].copy()
+        root_quat_wxyz = data.xquat[self.root_body_id].copy()   # MuJoCo: [w, x, y, z]
+        root_quat_xyzw = np.array([root_quat_wxyz[1], root_quat_wxyz[2],
+                                    root_quat_wxyz[3], root_quat_wxyz[0]])  # our: [x,y,z,w]
+        
         # MuJoCo's cvel (body spatial velocity) layout is: [[← angular first →] [← linear second →]]
-        # cvel[body_id] = [ang_vel_x, ang_vel_y, ang_vel_z, lin_vel_x, lin_vel_y, lin_vel_z]                
+        # cvel layout: [ang_x, ang_y, ang_z, lin_x, lin_y, lin_z]
         root_ang_vel = data.cvel[self.root_body_id, :3].copy()
         root_lin_vel = data.cvel[self.root_body_id, 3:].copy()
-        
-        self.root_tensor[env_idx, :3] = torch.from_numpy(root_pos)
-        self.root_tensor[env_idx, 3:7] = torch.from_numpy(root_quat_xyzw)
-        self.root_tensor[env_idx, 7:10] = torch.from_numpy(root_lin_vel)
+
+        self.root_tensor[env_idx, :3]    = torch.from_numpy(root_pos)
+        self.root_tensor[env_idx, 3:7]   = torch.from_numpy(root_quat_xyzw)
+        self.root_tensor[env_idx, 7:10]  = torch.from_numpy(root_lin_vel)
         self.root_tensor[env_idx, 10:13] = torch.from_numpy(root_ang_vel)
-        
-        # All link states - except world body (skip index 0)
-        for i in range(self.model.nbody-1):
-            body_id = i + 1              # ← was `i`, missing offset for world body
+
+        # --- All link states (skip world body index 0) ---
+        for i in range(self.model.nbody - 1):
+            body_id  = i + 1    # ← was `i`, missing offset for world body
             pos = data.xpos[body_id].copy()
             quat = data.xquat[body_id].copy()
             quat_xyzw = np.array([quat[1], quat[2], quat[3], quat[0]])
             ang_vel = data.cvel[body_id, :3].copy()
             lin_vel = data.cvel[body_id, 3:].copy()
-            
-            self.link_tensor[env_idx, i, :3] = torch.from_numpy(pos)
-            self.link_tensor[env_idx, i, 3:7] = torch.from_numpy(quat_xyzw)
-            self.link_tensor[env_idx, i, 7:10] = torch.from_numpy(lin_vel)
+
+            self.link_tensor[env_idx, i, :3]    = torch.from_numpy(pos)
+            self.link_tensor[env_idx, i, 3:7]   = torch.from_numpy(quat_xyzw)
+            self.link_tensor[env_idx, i, 7:10]  = torch.from_numpy(lin_vel)
             self.link_tensor[env_idx, i, 10:13] = torch.from_numpy(ang_vel)
-        
-        # Actuated joint positions from qpos[7:] and qvel[6:]
-        n_joints = self.model.nu  # 28
+
+        # --- Actuated joint positions & velocities from qpos[7:] / qvel[6:] ---
+        n_joints  = self.model.nu   # 28
         joint_pos = data.qpos[7:7+n_joints].copy()
         joint_vel = data.qvel[6:6+n_joints].copy()
         self.joint_tensor[env_idx, :n_joints, 0] = torch.from_numpy(joint_pos)
@@ -338,6 +453,10 @@ class MujocoEnv(gym.Env):
             for body_id in [geom1_body, geom2_body]:
                 if 0 < body_id < self.model.nbody:
                     self.contact_force_tensor[env_idx, body_id - 1] += force_vec
+
+        if self.verbose and self.simulation_step % 100 == 0 and env_idx == 0:
+            print(f"\n[Step {self.simulation_step}] Sync env-{env_idx}: root_h={root_pos[2]:.3f}")
+    
     
     def _apply_state_to_mujoco(self, env_idx: int = 0):
         """Apply state from tensors to MuJoCo.
@@ -348,6 +467,7 @@ class MujocoEnv(gym.Env):
                                   ←── root (6 DOFs) ────→   ←── 28 actuated ──→
         NOTE: qpos has 7 root entries but qvel only has 6 (no quaternion derivative).
         """
+        data = self.data_list[env_idx]   # ← use per-env data
 
         # --- Root position & orientation ---
         root_pos = self.root_tensor[env_idx, :3].cpu().numpy()
@@ -356,53 +476,47 @@ class MujocoEnv(gym.Env):
         root_quat_wxyz = np.array([root_quat_xyzw[3], root_quat_xyzw[0],
                                     root_quat_xyzw[1], root_quat_xyzw[2]])
 
-        # Find the free joint (root) and get its qpos address
-        root_jnt_id = -1
-        for i in range(self.model.njnt):
-            if self.model.jnt_type[i] == mujoco.mjtJoint.mjJNT_FREE:
-                root_jnt_id = i
-                break
+        # Find the free joint (root) qpos address — cached after first call
+        if not hasattr(self, '_root_jnt_qpos_adr'):
+            self._root_jnt_qpos_adr = 0
+            for i in range(self.model.njnt):
+                if self.model.jnt_type[i] == mujoco.mjtJoint.mjJNT_FREE:
+                    self._root_jnt_qpos_adr = self.model.jnt_qposadr[i]
+                    break
+        qpos_adr = self._root_jnt_qpos_adr   # typically 0
+        qvel_adr = qpos_adr                   # same start; qvel root has 6 entries, qpos has 7
 
-        # Default: root starts at index 0 (standard for humanoid with a single free joint)
-        qpos_root_adr = self.model.jnt_qposadr[root_jnt_id] if root_jnt_id >= 0 else 0
-        # qvel for the free joint always has the same start index as qpos (both = 0 here),
-        # but qvel has 6 entries (not 7) so we keep a separate variable for clarity.
-        qvel_root_adr = qpos_root_adr  # same start index; 0 for standard humanoids
-
-        # Write root state into qpos[0:7] and qvel[0:6]
-        self.data.qpos[qpos_root_adr  :qpos_root_adr+3] = root_pos        # x,y,z
-        self.data.qpos[qpos_root_adr+3:qpos_root_adr+7] = root_quat_wxyz  # w,x,y,z
-        self.data.qvel[qvel_root_adr  :qvel_root_adr+3] = self.root_tensor[env_idx, 7:10].cpu().numpy()   # lin vel
-        self.data.qvel[qvel_root_adr+3:qvel_root_adr+6] = self.root_tensor[env_idx, 10:13].cpu().numpy() # ang vel
+        # Write root state: qpos[0:7], qvel[0:6]
+        data.qpos[qpos_adr  :qpos_adr+3] = root_pos
+        data.qpos[qpos_adr+3:qpos_adr+7] = root_quat_wxyz
+        data.qvel[qvel_adr  :qvel_adr+3] = self.root_tensor[env_idx, 7:10].cpu().numpy()   # lin vel
+        data.qvel[qvel_adr+3:qvel_adr+6] = self.root_tensor[env_idx, 10:13].cpu().numpy()  # ang vel        
         # ↑ NOTE: qvel root slice ends at +6 (not +7) — free joint contributes 6 DOFs to qvel, 7 to qpos.
-
-        if self.verbose and self.simulation_step % 100 == 0:
-            print(f"\n[Step {self.simulation_step}] _apply_state_to_mujoco():")
-            print(f"  Root Joint Id: {root_jnt_id}, qpos_adr: {qpos_root_adr}")
-            print(f"  env_idx={env_idx}, root_tensor.shape={self.root_tensor.shape}")
 
         # --- Actuated joint positions & velocities ---
         # joint_tensor has shape (n_envs, n_joints=28, 2) → local indices 0..27
         # These map directly to qpos[7:35] and qvel[6:34] (right after the free-joint root entries)
-        n_joints = self.model.nu  # 28 actuated joints
-        joint_pos = self.joint_tensor[env_idx, :n_joints, 0].cpu().numpy()  # (28,)
-        joint_vel = self.joint_tensor[env_idx, :n_joints, 1].cpu().numpy()  # (28,)
-        self.data.qpos[qpos_root_adr+7 : qpos_root_adr+7+n_joints] = joint_pos  # qpos[7:35]
-        self.data.qvel[qvel_root_adr+6 : qvel_root_adr+6+n_joints] = joint_vel  # qvel[6:34]
+        n_joints  = self.model.nu   # 28
+        data.qpos[qpos_adr+7 : qpos_adr+7+n_joints] = self.joint_tensor[env_idx, :n_joints, 0].cpu().numpy()
+        data.qvel[qvel_adr+6 : qvel_adr+6+n_joints] = self.joint_tensor[env_idx, :n_joints, 1].cpu().numpy()
+
+        if self.verbose and self.simulation_step % 100 == 0 and env_idx == 0:
+            print(f"\n[Step {self.simulation_step}] _apply_state_to_mujoco(env={env_idx}): qpos_adr={qpos_adr}")
     
     def reset(self, seed=None, options=None):
-        """Reset environment"""
+        """Reset all environments"""
         super().reset(seed=seed)
-        
+
         self.lifetime.zero_()
         self.done.fill_(True)
         self.info = dict(lifetime=self.lifetime)
         self.request_quit = False
-        
-        # Reset MuJoCo data
-        mujoco.mj_resetData(self.model, self.data)
-        
-        # Initialize state
+
+        # Reset all per-env MuJoCo data instances
+        for data in self.data_list:
+            mujoco.mj_resetData(self.model, data)
+
+        # Initialize state from reference motion
         env_ids = torch.arange(self.n_envs, device=self.device)
         self.reset_envs(env_ids)
         self.obs = None
@@ -420,7 +534,7 @@ class MujocoEnv(gym.Env):
         return self.obs, self.info
         
     def reset_envs(self, env_ids):
-        """Reset specific environments"""
+        """Reset specific environments Parallelly"""
         ref_link_tensor, ref_joint_tensor = self.init_state(env_ids)
         # For each env in env_ids, apply the ref state.
         # ref_link_tensor : (n, n_bodies, 13)  — link poses/vels from reference motion
@@ -439,8 +553,15 @@ class MujocoEnv(gym.Env):
             self.joint_tensor[env_id, :n_store] = ref_joint_tensor[k, :n_store]
 
             # Write tensors back into MuJoCo data and run a kinematics update
-            self._apply_state_to_mujoco(env_id.item() if hasattr(env_id, 'item') else env_id)
-            mujoco.mj_forward(self.model, self.data)
+            eid = env_id.item() if hasattr(env_id, 'item') else env_id
+            self._apply_state_to_mujoco(eid)
+            #mujoco.mj_forward(self.model, self.data_list[eid]) # sequential
+        
+        def forward_single(eid): # thread fn
+            mujoco.mj_forward(self.model, self.data_list[eid])        
+        futures = [self.executor.submit(forward_single, eid) for eid in env_ids]
+        for f in futures:
+            f.result()
 
         self.lifetime[env_ids] = 0
     
@@ -461,9 +582,15 @@ class MujocoEnv(gym.Env):
         return ref_link_tensor, ref_joint_tensor
     
     def do_simulation(self):
-        """Step physics simulation"""
-        for _ in range(self.frameskip):
-            mujoco.mj_step(self.model, self.data)
+        """Step physics simulation for all environments Parallely"""
+        def step_single(eid): # thread fn
+            data = self.data_list[eid]
+            for _ in range(self.frameskip):
+                mujoco.mj_step(self.model, data)
+        
+        futures = [self.executor.submit(step_single, eid) for eid in range(self.n_envs)]
+        for f in futures:
+            f.result()  # propagate exceptions
         self.simulation_step += 1
     
     def step(self, actions):
@@ -505,22 +632,23 @@ class MujocoEnv(gym.Env):
         return obs_np, reward_np, terminated_np, truncated_np, self.info
     
     def apply_actions(self, actions):
-        """Apply actions to simulation"""
+        """Apply actions to all simulation environments"""
         actions = self.process_actions(actions)
         
         if self.control_mode == "position" or self.control_mode == "torque":
-            if self.action_tensor is None:
-                # Simple case: actions already has shape [n_envs, n_actuators]
-                for i in range(min(self.model.nu, actions.shape[-1])):
-                    self.data.ctrl[i] = actions[0, i].item()                # ← always uses env 0's action
-            else:
-                # Complex case: actions has shape [n_envs, n_dofs]
-                # Need to extract values at actuated DOF indices (First 6 actuators get zeros from root DOFs!)
-                for i in range(self.model.nu):
-                    dof_id = self.actuated_dof_ids[i]  # ← FIX IS HERE!
-                    self.data.ctrl[i] = actions[0, dof_id].item()
+            for env_idx in range(self.n_envs):
+                data = self.data_list[env_idx]
+                if self.action_tensor is None:
+                    # actions shape: [n_envs, n_actuators]
+                    for i in range(min(self.model.nu, actions.shape[-1])):
+                        data.ctrl[i] = actions[env_idx, i].item()
+                else:
+                    # actions shape: [n_envs, n_dofs] — extract at actuated DOF indices
+                    for i in range(self.model.nu):
+                        dof_id = self.actuated_dof_ids[i]
+                        data.ctrl[i] = actions[env_idx, dof_id].item()
         
-        # Debug (after setting ctrl values)
+        # Debug (after setting ctrl values) @env-idx-0
         if self.verbose and self.simulation_step % 100 == 0:
             print(f"\n[Step {self.simulation_step}] CTRL check:")
             print(f"  Ctrl values (first 10): {self.data.ctrl[:10]}")

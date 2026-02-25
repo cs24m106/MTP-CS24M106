@@ -1,6 +1,6 @@
 import os, time
 import numpy as np
-import cv2
+import cv2, csv
 import torch
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0' #  Turn off oneDNN custom operations in tensorflow
 from torch.utils.tensorboard import SummaryWriter # set env before import to ignore warnings from tensorboard
@@ -104,7 +104,8 @@ def test(env, model, save_dir, max_steps=10000):
 
                 # Show window (uncomment to save)
                 cv2.imshow(save_folder, bgr)
-                #cv2.imwrite(os.path.join(save_dir, save_folder, f"frame_{steps:05d}.png"), bgr)
+                if steps % 100 == 0:
+                    cv2.imwrite(os.path.join(save_dir, save_folder, f"frame_{steps:05d}.png"), bgr)
         
             if check_exit(env):
                 print(f"User requested exit!")
@@ -119,15 +120,64 @@ def test(env, model, save_dir, max_steps=10000):
         steps += 1
     
     print(f"Test completed: {steps} steps")
-
+# ---
 
 def train(env, model, ckpt_dir, training_params, init_epoch=0):
     """Train the model using PPO"""
     if ckpt_dir is not None:
         # Default log_dir is 'ckpt_dir/CURRENT_DATETIME_HOSTNAME'
         logger = SummaryWriter(ckpt_dir)
+        
+        # --- CSV Logger Setup ---
+        csv_log_path = os.path.join(ckpt_dir, "training_metrics.csv")
+        
+        # Define CSV columns based on metrics being tracked
+        csv_columns = ["epoch", "lifetime", "reward_mean", "policy_loss", "value_loss"]
+        
+        # Add discriminator score columns if present
+        if env.discriminators:
+            for name in env.discriminators.keys():
+                csv_columns.append(f"score_real_{name}")
+                csv_columns.append(f"score_fake_{name}")
+        
+        # Add discriminator reward columns if present
+        if env.discriminators:
+            for name in env.discriminators.keys():
+                csv_columns.append(f"disc_reward_{name}")
+        
+        # Add task reward columns if present
+        if env.rew_dim > 0:
+            for i in range(env.rew_dim):
+                csv_columns.append(f"task_reward_{i}")
+        
+        # Handle resume: if init_epoch > 0, truncate CSV to that epoch
+        if init_epoch > 0 and os.path.exists(csv_log_path):
+            # Read existing CSV and keep only rows with epoch < init_epoch
+            existing_rows = []
+            with open(csv_log_path, 'r', newline='') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    if int(row['epoch']) < init_epoch:
+                        existing_rows.append(row)
+            
+            # Rewrite CSV with kept rows
+            with open(csv_log_path, 'w', newline='') as f:
+                writer = csv.DictWriter(f, fieldnames=csv_columns)
+                writer.writeheader()
+                writer.writerows(existing_rows)
+            csv_mode = 'a'
+        else:
+            csv_mode = 'w'
+        
+        # Initialize CSV file with header if needed
+        if not os.path.exists(csv_log_path) or csv_mode == 'w':
+            with open(csv_log_path, 'w', newline='') as f:
+                writer = csv.DictWriter(f, fieldnames=csv_columns)
+                writer.writeheader()
     else:
         logger = None
+        csv_log_path = None
+        csv_columns = None
 
     optimizer = torch.optim.Adam([
         {"params": model.actor.parameters(), "lr": training_params.actor_lr},
@@ -215,7 +265,7 @@ def train(env, model, ckpt_dir, training_params, init_epoch=0):
                 buffer_disc[name]["fake"].append(fake)
                 buffer_disc[name]["real"].append(reals[name])
 
-        if env.verbose: print(f"[Training Counter] --> epochs:{epoch} --> total_steps:{total_steps}")
+        #if env.verbose: print(f"[Training Counter] --> epochs:{epoch} --> total_steps:{total_steps}")
         total_steps += training_params.num_envs
 
         if len(buffer["s"]) == HORIZON: # wait till buffer caches horizon number of steps/obs (kinda like dfs with max depth=horizon)
@@ -305,9 +355,12 @@ def train(env, model, ckpt_dir, training_params, init_epoch=0):
                     reward_weights = None
                     rewards = None
                 
+                # --- Store individual discriminator rewards for logging ---
+                disc_rewards = {}
                 for name, disc, _, ob, seq_end_frame in disc_data:
                     r = (disc(ob, seq_end_frame, normalize=False).clamp_(-1, 1)
                          .mean(-1, keepdim=True))
+                    disc_rewards[name] = r  # Store for logging
                     if rewards is None:
                         rewards = r
                     else:
@@ -434,6 +487,12 @@ def train(env, model, ckpt_dir, training_params, init_epoch=0):
                 if rewards_task is not None:
                     rewards_task = rewards_task.mean(0).cpu().tolist()
                 
+                # --- Compute individual discriminator reward means for logging ---
+                disc_reward_means = {}
+                if env.discriminators:
+                    for name, disc_r in disc_rewards.items():
+                        disc_reward_means[name] = disc_r.mean().item()
+                
                 if env.verbose: print()
                 print("Epoch: {:4d}, Loss: policy={} / value={}, Reward: {}, Lifetime: {} -- {:.4f}s{}".format(
                     update_epoch,
@@ -458,9 +517,48 @@ def train(env, model, ckpt_dir, training_params, init_epoch=0):
                         if f_loss:
                             logger.add_scalar("score_fake/{}".format(name), sum(f_loss) / len(f_loss), update_epoch)
                     
+                    # --- Log individual discriminator rewards to TensorBoard ---
+                    if env.discriminators:
+                        for name, disc_r_mean in disc_reward_means.items():
+                            logger.add_scalar("disc_reward/{}".format(name), disc_r_mean, update_epoch)
+                    
+                    # --- Log individual task rewards to TensorBoard ---
                     if rewards_task is not None:
                         for i in range(len(rewards_task)):
                             logger.add_scalar("train/task_reward_{}".format(i), rewards_task[i], update_epoch)
+                
+                # --- CSV Logger: Write metrics to CSV file ---
+                if csv_log_path is not None:
+                    csv_row = {
+                        "epoch": update_epoch,
+                        "lifetime": lifetime,
+                        "reward_mean": np.mean(r),
+                        "policy_loss": policy_loss,
+                        "value_loss": value_loss
+                    }
+                    
+                    # Add discriminator scores
+                    if env.discriminators:
+                        for name in env.discriminators.keys():
+                            r_loss = real_losses.get(name, [])
+                            f_loss = fake_losses.get(name, [])
+                            csv_row[f"score_real_{name}"] = sum(r_loss) / len(r_loss) if r_loss else float('nan')
+                            csv_row[f"score_fake_{name}"] = sum(f_loss) / len(f_loss) if f_loss else float('nan')
+                    
+                    # Add discriminator rewards
+                    if env.discriminators:
+                        for name in env.discriminators.keys():
+                            csv_row[f"disc_reward_{name}"] = disc_reward_means.get(name, float('nan'))
+                    
+                    # Add task rewards
+                    if rewards_task is not None:
+                        for i in range(len(rewards_task)):
+                            csv_row[f"task_reward_{i}"] = rewards_task[i]
+                    
+                    # Append to CSV file
+                    with open(csv_log_path, 'a', newline='') as f:
+                        writer = csv.DictWriter(f, fieldnames=csv_columns)
+                        writer.writerow(csv_row)
                 
                 for v in real_losses.values():
                     v.clear()
@@ -485,5 +583,4 @@ def train(env, model, ckpt_dir, training_params, init_epoch=0):
     if logger:
         logger.flush() # make sure that all pending events have been written to disk.
         logger.close()
-
 # ---

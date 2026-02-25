@@ -176,6 +176,10 @@ class ICCGANHumanoid(MujocoEnv):
             device=self.device
         )
 
+    def reset_envs(self, env_ids): # overwrite for extra handling
+        super().reset_envs(env_ids)
+        self.state_hist[:, env_ids] = 0.0   # ← add this line
+
     def reset_done(self):
         """Reset done environments and return observations with info"""
         obs, info = super().reset_done()
@@ -276,7 +280,8 @@ class ICCGANHumanoid(MujocoEnv):
     
     def observe(self, env_ids=None):
         """Observe with ICCGAN observation function"""
-        self.ob_seq_lens = self.lifetime + 1
+        # FIX: When lifetime > 4, the masking in observe_iccgan_safe breaks and returns wrong observation frames.
+        self.ob_seq_lens = torch.clamp(self.lifetime + 1, max=self.ob_horizon)
         n_envs = self.n_envs
         
         if env_ids is None or len(env_ids) == n_envs:
@@ -313,7 +318,7 @@ class ICCGANHumanoid(MujocoEnv):
     
     def observe_disc(self, state):
         """Observe for discriminator"""
-        seq_len = self.info["ob_seq_lens"] + 1
+        seq_len = self.info["ob_seq_lens"] # already has +1 from observe()
         res = dict()
         
         if torch.is_tensor(state):
@@ -393,7 +398,7 @@ class ICCGANHumanoid(MujocoEnv):
 class ICCGANHumanoidTarget(ICCGANHumanoid):
     """ICCGAN Humanoid with target reaching - for locomotion tasks"""
     
-    GOAL_DIM = 2
+    GOAL_DIM = 4    # direction(2) + distance(1) + speed(1), per paper appendix B.2
     GOAL_REWARD_WEIGHT = [0.5]
     ENABLE_GOAL_TIMER = True
     GOAL_TENSOR_DIM = 2
@@ -476,8 +481,7 @@ class ICCGANHumanoidTarget(ICCGANHumanoid):
     
     def observe(self, env_ids=None):
         """Observe with goal information"""
-        # Get base observation
-        base_obs = super().observe(env_ids)
+        base_obs = super().observe(env_ids) # calls ICCGANHumanoid.observe()
         
         # Compute goal-relative observation
         if env_ids is None:
@@ -485,12 +489,14 @@ class ICCGANHumanoidTarget(ICCGANHumanoid):
         
         # Goal position relative to root
         root_pos = self.root_tensor[env_ids, :2]  # x, y position
-        goal_rel = self.goal_pos[env_ids] - root_pos
+        goal_rel = self.goal_pos[env_ids] - root_pos          # raw (dx, dy)
+        dist = goal_rel.norm(dim=-1, keepdim=True).clamp(min=1e-6)
+        goal_dir = goal_rel / dist                             # unit direction (2D)
+        speed = self.goal_speed[env_ids].unsqueeze(-1)         # (n, 1)
         
-        # Concatenate goal to observation
-        obs_with_goal = torch.cat([base_obs, goal_rel], dim=-1)
-        
-        return obs_with_goal
+        # concat into goal vector: [dir_x, dir_y, dist, speed] = 4D
+        goal_vec = torch.cat([goal_dir, dist, speed], dim=-1)
+        return torch.cat([base_obs, goal_vec], dim=-1)
     
     def reward(self):
         """Compute goal-reaching reward"""
