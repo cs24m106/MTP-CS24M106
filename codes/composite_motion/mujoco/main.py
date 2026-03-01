@@ -67,8 +67,8 @@ np.set_printoptions(linewidth=120, suppress=True, precision=6, sign=' ', floatmo
 #os.environ['CUDA_LAUNCH_BLOCKING'] = '1' # use for debuging without 
 
 TRAINING_PARAMS = dict(
-    horizon = 8,        # each PPO epoch (one buffer fill) takes 8 env steps.
-    num_envs = 32,       # 32*8 = 256 --> single batch produced
+    horizon = 16,           # default = [each PPO epoch (one buffer fill) takes 8 env steps] --> longer rollouts give much better GAE advantage estimates
+    num_envs = 16,          # 32*8 = 256 --> single batch produced
     simulation_speed = 120, # physics simulation running at 120 hz as per paper
     batch_size = 256,
     opt_epochs = 5,
@@ -76,15 +76,13 @@ TRAINING_PARAMS = dict(
     critic_lr = 1e-4,
     gamma = 0.95,
     lambda_ = 0.95,
-    disc_lr = 1e-5,
-    max_epochs = 10000, # 10000 iterations / 8 per PPO epoch = 125 PPO epochs --> in each training loop
+    disc_lr = 5e-6,         # default = 1e-5, slow it when incresing horizon, to give policy time to respond
+    max_epochs = 10000,     # 10000 iterations / 8 per PPO epoch = 125 PPO epochs --> in each training loop
     save_interval = 500,
     log_interval = 10,
-    terminate_reward = -5,    # FIX BUG5: was -1. With disc_reward≈-0.5/step, falling immediately (V=-1) was
-                              # ALWAYS better than surviving 5+ steps (V=-3.6). Policy learned to fall faster.
-                              # With -5: surviving 8 steps at -0.5/step = V≈-3.8 > -5 → survival is rewarded.
+    terminate_reward = -5,  # default = -1
     control_mode="position",
-    character_model=os.path.join("assets", "humanoid.xml"),
+    character_model=os.path.join("assets", "humanoid_posctrl.xml"),
     # update xml for differ model simulations, but make sure no.of body parts are same
 )
 
@@ -151,7 +149,7 @@ def get_ckpt_dir_and_weights_file(ckpt_path, config_path):
                 ckpt_dir = os.path.join(ckpt_dir, config_base)
             weights_file = os.path.join(ckpt_dir, "ckpt")
     else:
-        if ("ckpt" in last_base): # given path to file that doesnt exist
+        if ("ckpt" in last_folder): # given path to file that doesnt exist
             ckpt_dir = os.path.dirname(ckpt_path)
             weights_file = ckpt_path
         else: # treat as directory and apply config_base logic
@@ -247,4 +245,5 @@ if __name__ == "__main__":
         #shutil.copy(settings.config, settings.ckpt) # uncomment to copy config onto checkpoints folder for ease of access
         with open(os.path.join(settings.ckpt, "cmds.txt"), "a") as f: # keep track of cmds
             f.write(f"{datetime.now()} \"{" ".join(sys.argv)}\"\n")
+            f.write(f"Training Params: {TRAINING_PARAMS}\n\n")
         train(env, model, settings.ckpt, training_params, init_epoch = load_latest_checkpoint(model, settings.ckpt))

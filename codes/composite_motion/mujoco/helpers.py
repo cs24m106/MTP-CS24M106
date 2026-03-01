@@ -1,9 +1,13 @@
-import os, time
+import os, sys, time, multiprocessing
 import numpy as np
 import cv2, csv
-import torch
+import torch, matplotlib
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0' #  Turn off oneDNN custom operations in tensorflow
 from torch.utils.tensorboard import SummaryWriter # set env before import to ignore warnings from tensorboard
+matplotlib.use('TkAgg') # Ensure GUI backend
+import warnings
+warnings.filterwarnings("ignore", category=ResourceWarning)
+from training_dashboard import TrainingDashboard
 
 # Custom formatting for loss and reward: space for positive, minus for negative
 def fmt_signed(val):
@@ -33,6 +37,13 @@ def check_exit(env):
             return True
     
     return False
+
+# Start dashboard in a separate process
+def dashboard_worker(csv_path, window_size=None):
+    #time.sleep(5) # to start delayed
+    dash = TrainingDashboard(csv_path, window_size)
+    dash.run()
+#---
 
 def test(env, model, save_dir, max_steps=10000):
     """Test the trained model"""
@@ -102,7 +113,8 @@ def test(env, model, save_dir, max_steps=10000):
                 cv2.putText(bgr, title, org, font, 0.6, (0, 0, 0), thickness=3, lineType=cv2.LINE_AA)
                 cv2.putText(bgr, title, org, font, 0.6, (255, 255, 255), thickness=1, lineType=cv2.LINE_AA)
 
-                # Show window (uncomment to save)
+                # Show via resizable window (save periodic frames)
+                #cv2.namedWindow(save_folder, cv2.WINDOW_NORMAL)
                 cv2.imshow(save_folder, bgr)
                 if steps % 100 == 0:
                     cv2.imwrite(os.path.join(save_dir, save_folder, f"frame_{steps:05d}.png"), bgr)
@@ -119,6 +131,7 @@ def test(env, model, save_dir, max_steps=10000):
         
         steps += 1
     
+    env.close()
     print(f"Test completed: {steps} steps")
 # ---
 
@@ -157,7 +170,7 @@ def train(env, model, ckpt_dir, training_params, init_epoch=0):
             with open(csv_log_path, 'r', newline='') as f:
                 reader = csv.DictReader(f)
                 for row in reader:
-                    if int(row['epoch']) < init_epoch:
+                    if int(row['epoch']) <= init_epoch:
                         existing_rows.append(row)
             
             # Rewrite CSV with kept rows
@@ -174,6 +187,10 @@ def train(env, model, ckpt_dir, training_params, init_epoch=0):
             with open(csv_log_path, 'w', newline='') as f:
                 writer = csv.DictWriter(f, fieldnames=csv_columns)
                 writer.writeheader()
+
+        # live dashboard to view training metrics on last save_interval*2 window
+        dashboard_proc = multiprocessing.Process(target=dashboard_worker, args=(csv_log_path, training_params.save_interval *2))
+        dashboard_proc.start()
     else:
         logger = None
         csv_log_path = None
@@ -214,6 +231,10 @@ def train(env, model, ckpt_dir, training_params, init_epoch=0):
     steps_per_epoch = training_params.num_envs * HORIZON
     
     print(f"$ Starting Training Module for epochs set: {init_epoch+1} to {init_epoch+training_params.max_epochs} with steps_per_epoch: {steps_per_epoch} ...")
+    if env.verbose:
+        print(f"  ob_horizon={env.ob_horizon}  disc.ob_horizon(s)={[d.ob_horizon for d in env.discriminators.values()]}")
+        print(f"  NOTE: end_frame = ob_seq_lens-1 ensures GRU reads last VALID frame (not zero-padded slot)")
+        
     epoch = 0
     model.eval()
     env.train()
@@ -279,7 +300,8 @@ def train(env, model, ckpt_dir, training_params, init_epoch=0):
                         disc = model.discriminators[name]
                         fake = torch.cat(data["fake"]).to(env.device)
                         real_ = torch.cat(data["real"]).to(env.device)
-                        end_frame = ob_seq_lens
+                        # FIX: end_frame must be ob_seq_lens - 1, NOT ob_seq_lens
+                        end_frame = ob_seq_end_frames   # ← was ob_seq_lens (off-by-one BUG)
 
                         length = torch.arange(fake.size(1), 
                             dtype=end_frame.dtype, device=env.device
@@ -294,6 +316,33 @@ def train(env, model, ckpt_dir, training_params, init_epoch=0):
                         ob = disc.ob_normalizer(fake)
                         ref = disc.ob_normalizer(real)
                         disc_data.append((name, disc, ref, ob, end_frame))
+
+                        # ---- DEBUG: verify the fix by checking what the GRU will actually read ----
+                        if env.verbose and (epoch % LOG_INTERVAL == 0 or epoch <= 2):
+                            # Sample a few instances to inspect
+                            n_check = min(8, fake.size(0))
+                            ef_check = end_frame[:n_check]
+                            # Grab the actual vectors the GRU will output at (before normalisation)
+                            fake_at_ef = fake[:n_check][
+                                torch.arange(n_check, device=env.device),
+                                ef_check.clamp(max=fake.size(1)-1)
+                            ]
+                            real_at_ef = real[:n_check][
+                                torch.arange(n_check, device=env.device),
+                                ef_check.clamp(max=real.size(1)-1)
+                            ]
+                            fake_norm = fake_at_ef.norm(dim=-1).mean().item()
+                            real_norm = real_at_ef.norm(dim=-1).mean().item()
+                            ef_mean   = ef_check.float().mean().item()
+                            ef_min    = ef_check.min().item()
+                            ef_max    = ef_check.max().item()
+                            print(f"  [DISC-DBG][{name}] end_frame: mean={ef_mean:.1f} [{ef_min}-{ef_max}]"
+                                  f" | fake@ef_norm={fake_norm:.4f} | real@ef_norm={real_norm:.4f}"
+                                  f" | seq_dim={fake.size(1)}")
+                            if fake_norm < 1e-3:
+                                print(f"  [DISC-DBG][{name}] ⚠️  fake@end_frame is near-ZERO — reading zero-padded slot!")
+                            else:
+                                print(f"  [DISC-DBG][{name}] ✓  fake@end_frame has real content (norm={fake_norm:.4f})")
 
                 model.train()
                 n_samples = 0
@@ -322,6 +371,23 @@ def train(env, model, ckpt_dir, training_params, init_epoch=0):
 
                         loss_r = torch.nn.functional.relu(1 - score_r).mean()
                         loss_f = torch.nn.functional.relu(1 + score_f).mean()
+
+                        if env.verbose and (epoch % LOG_INTERVAL == 0 and batch == 0):
+                            print(f"\n--- [DEBUG] Discriminator Feature Norms ({name}) ---")
+                            
+                            # Flatten batch and sequence dimensions: [Batch*Seq, Features]
+                            r_flat = r.reshape(-1, r.shape[-1])
+                            f_flat = f.reshape(-1, f.shape[-1])
+                            
+                            # Calculate global per-feature mean absolute difference (1D tensor now)
+                            diff = torch.abs(r_flat - f_flat).mean(dim=0)
+                            
+                            # Print the top 5 features where the discriminator finds the biggest gap
+                            top_diffs, top_idx = torch.topk(diff, 5)
+                            for i in range(5):
+                                idx = top_idx[i].item()
+                                print(f" Feature {idx:3d}: Real_Avg={r_flat[:, idx].mean():.4f}, Fake_Avg={f_flat[:, idx].mean():.4f}, Diff={top_diffs[i]:.4f}")
+                            print("---------------------------------------------------\n")
 
                         with torch.no_grad():
                             alpha = torch.rand(r.size(0), dtype=r.dtype, device=r.device)
@@ -365,6 +431,26 @@ def train(env, model, ckpt_dir, training_params, init_epoch=0):
                         rewards = r
                     else:
                         rewards[:, env.discriminators[name].id] = r.squeeze_(-1)
+                    
+                    # ---- DEBUG: show discriminator score distributions ----
+                    if env.verbose and (epoch % LOG_INTERVAL == 0 or epoch <= 2):
+                        r_flat = r.view(-1)
+                        n_pos  = (r_flat > 0).sum().item()
+                        n_neg  = (r_flat < 0).sum().item()
+                        print(f"  [DISC-SCORE][{name}] reward: mean={r_flat.mean():.4f}"
+                              f"  std={r_flat.std():.4f}"
+                              f"  pos={n_pos}({100*n_pos/len(r_flat):.0f}%)"
+                              f"  neg={n_neg}({100*n_neg/len(r_flat):.0f}%)")
+                
+                # ---- DEBUG: physics / lifetime health ----
+                if env.verbose and (epoch % LOG_INTERVAL == 0 or epoch <= 2):
+                    n_terminated = terminate.sum().item()
+                    n_total      = terminate.numel()
+                    root_h_mean  = env.root_tensor[:, 2].mean().item()
+                    root_h_min   = env.root_tensor[:, 2].min().item()
+                    print(f"  [PHYS-DBG] terminate={n_terminated}/{n_total}"
+                          f"  root_h: mean={root_h_mean:.3f}  min={root_h_min:.3f}"
+                          f"  lifetime_mean={env.lifetime.float().mean():.1f}")
                 
                 if has_goal_reward:
                     rewards_task = torch.cat(buffer["r"])
@@ -405,6 +491,14 @@ def train(env, model, ckpt_dir, training_params, init_epoch=0):
 
                 sigma, mu = torch.std_mean(advantages, dim=0, unbiased=True)
                 advantages = (advantages - mu) / (sigma + 1e-8)
+
+                # ---- DEBUG: advantage health (should span a reasonable range, not all same sign) ----
+                if env.verbose and (epoch % LOG_INTERVAL == 0 or epoch <= 2):
+                    adv_flat = advantages.view(-1)
+                    print(f"  [ADV-DBG]  advantages: mean={adv_flat.mean():.4f}"
+                          f"  std={adv_flat.std():.4f}"
+                          f"  min={adv_flat.min():.4f}  max={adv_flat.max():.4f}"
+                          f"  pos%={(adv_flat>0).float().mean()*100:.0f}%")
 
                 length = torch.arange(env.ob_horizon, 
                     dtype=ob_seq_lens.dtype, device=ob_seq_lens.device)
@@ -473,7 +567,7 @@ def train(env, model, ckpt_dir, training_params, init_epoch=0):
                 for v in buf.values():
                     v.clear()
 
-            if epoch % LOG_INTERVAL == 0 or epoch == 1:
+            if epoch % LOG_INTERVAL == 0 or (init_epoch == 0 and epoch == 1):
                 lifetime = env.lifetime.to(torch.float32).mean().item()
                 policy_loss = np.mean(policy_loss) if policy_loss else float('nan')
                 value_loss  = np.mean(value_loss)  if value_loss  else float('nan')

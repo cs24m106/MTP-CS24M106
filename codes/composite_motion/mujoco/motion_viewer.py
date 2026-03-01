@@ -3,8 +3,7 @@ Motion Viewer Utility for CompositeMotion
 Displays reference motions before training
 """
 
-import os
-import sys
+import os, sys, time
 import numpy as np
 import torch
 import mujoco
@@ -19,7 +18,7 @@ from ref_motion import ReferenceMotion
 class MotionViewer:
     """Viewer for reference motion data"""
     
-    def __init__(self, motion_file: str, character_model: str = "assets/humanoid.xml"):
+    def __init__(self, motion_file: str, character_model: str):
         """
         Args:
             motion_file: Path to motion file (json, yaml, or joblib)
@@ -40,76 +39,61 @@ class MotionViewer:
         self.data = mujoco.MjData(self.model)
         
         # Setup renderer
-        self.renderer = mujoco.Renderer(self.model, height=480, width=640)
+        self.renderer = mujoco.Renderer(self.model, width=960, height=720) # 960x720 = 4:3,  1280:720 = 16:9, aspects
         
         # Body names for highlighting
         self.body_names = [mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_BODY, i) 
                           for i in range(self.model.nbody)]
         
-    def visualize_motion(self, motion_idx: int = 0, save_path: Optional[str] = None, 
-                         fps: int = 30, highlight_links: Optional[List[str]] = None):
-        """
-        Visualize a specific motion
+    def generate_preview(self, motion_idx: int = 0, output_path: str = "preview.mp4", fps: int = 30):
+        """Generates an MP4 video of a specific reference motion."""
+        print(f"Generating {output_path} ...", end="", flush=True)
         
-        Args:
-            motion_idx: Index of motion to visualize
-            save_path: Path to save video (if None, just display)
-            fps: Frames per second
-            highlight_links: List of link names to highlight
-        """
-        # Get motion info
-        motion_info = self.ref_motion.motions[motion_idx]
-        motion_length = motion_info['length']
-        motion_fps = motion_info['fps']
+        # Get motion properties from tensors
+        motion_len = self.ref_motion.motion_length[motion_idx].item()
+        num_steps = int(motion_len * fps)
         
-        print(f"Motion {motion_idx}: {motion_length:.2f}s at {motion_fps}fps")
-        
-        # Generate frames
         frames = []
-        n_frames = int(motion_length * fps)
         
-        for i in range(n_frames):
+        for i in range(num_steps):
             t = i / fps
-            motion_ids = np.array([motion_idx])
-            motion_times = np.array([t])
             
-            # Get state
-            link_tensor, joint_tensor = self.ref_motion.state(motion_ids, motion_times)
+            # Query the ReferenceMotion state
+            link_tensor, joint_tensor = self.ref_motion.state(
+                torch.tensor([motion_idx]), torch.tensor([t])
+            )
             
-            # Apply to MuJoCo
-            self._apply_state(link_tensor[0])
+            # Extract root state (batch 0, link 0)
+            root_state = link_tensor[0, 0]
+            
+            # 1. Apply Root Position
+            self.data.qpos[0:3] = root_state[0:3].cpu().numpy()
+            
+            # 2. FIX QUATERNION: IsaacGym [x,y,z,w] -> MuJoCo [w,x,y,z]
+            q_ig = root_state[3:7].cpu().numpy()
+            self.data.qpos[3:7] = [q_ig[3], q_ig[0], q_ig[1], q_ig[2]]
+            
+            # 3. Apply Joint Positions
+            if joint_tensor is not None:
+                # Extract only the Position (index 0) from [Position, Velocity]
+                joints = joint_tensor[0, :, 0].cpu().numpy()
+                num_joints = min(len(joints), len(self.data.qpos) - 7)
+                self.data.qpos[7:7+num_joints] = joints[:num_joints]
+            
+            # 4. Forward Kinematics
             mujoco.mj_forward(self.model, self.data)
             
-            # Render
-            self.renderer.update_scene(self.data)
+            # 5. Render frame
+            self.renderer.update_scene(self.data, camera="track" if self.model.ncam > 0 else -1)
             frame = self.renderer.render()
-            
-            # Add overlay with motion info
-            frame = self._add_overlay(frame, motion_idx, t, highlight_links)
-            
             frames.append(frame)
-        
-        # Save or display
-        if save_path:
-            imageio.mimsave(save_path, frames, fps=fps)
-            print(f"Saved video to {save_path}")
-        
-        return frames
-    
-    def _apply_state(self, link_tensor):
-        """Apply link state to MuJoCo"""
-        # Root body (pelvis)
-        root_pos = link_tensor[0, :3].cpu().numpy()
-        root_quat_xyzw = link_tensor[0, 3:7].cpu().numpy()
-        root_quat = np.array([root_quat_xyzw[3], root_quat_xyzw[0], root_quat_xyzw[1], root_quat_xyzw[2]])
-        
-        # Find free joint
-        for i in range(self.model.njnt):
-            if self.model.jnt_type[i] == mujoco.mjtJoint.mjJNT_FREE:
-                qpos_adr = self.model.jnt_qposadr[i]
-                self.data.qpos[qpos_adr:qpos_adr+3] = root_pos
-                self.data.qpos[qpos_adr+3:qpos_adr+7] = root_quat
-                break
+            
+        # Save to video
+        try:
+            imageio.mimsave(output_path, frames, fps=fps, macro_block_size=1)
+            print(" Done!")
+        except Exception as e:
+            print(f" Failed! Error: {e}")
     
     def _add_overlay(self, frame, motion_idx: int, time: float, 
                      highlight_links: Optional[List[str]] = None):
@@ -147,27 +131,34 @@ class MotionViewer:
         print(f"\n{'='*60}")
         print(f"Motion File: {self.motion_file}")
         print(f"{'='*60}")
-        print(f"Total Motions: {len(self.ref_motion.motions)}")
+        num_motions = len(self.ref_motion.motion_length)
+        print(f"Total Motions: {num_motions}")
         print(f"{'-'*60}")
         
-        for i, motion in enumerate(self.ref_motion.motions):
-            print(f"Motion {i}:")
-            print(f"  Length: {motion['length']:.3f}s")
-            print(f"  FPS: {motion['fps']}")
-            print(f"  Frames: {len(motion['data'])}")
+        for i in range(num_motions):
+            # Read directly from the generated tensors in ref_motion.py
+            length = self.ref_motion.motion_length[i].item()
+            n_frames = self.ref_motion.motion_n_frames_tensor[i].item()
+            print(f"  Motion {i}: Length = {length:.3f}s, Frames = {n_frames}")
         
         print(f"{'='*60}\n")
     
     def preview_all_motions(self, output_dir: str = "motion_previews"):
-        """Generate preview videos for all motions"""
+        """Generates preview videos for all loaded motions."""
         os.makedirs(output_dir, exist_ok=True)
         
-        for i in range(len(self.ref_motion.motions)):
-            save_path = os.path.join(output_dir, f"motion_{i:03d}.mp4")
-            self.visualize_motion(motion_idx=i, save_path=save_path)
+        # FIX: Use motion_length tensor instead of .motions list
+        num_motions = len(self.ref_motion.motion_length)
+        print(f"Generating previews for {num_motions} motions...")
+        
+        for i in range(num_motions):
+            base = os.path.splitext(os.path.basename(self.motion_file))[0]
+            fname = f"{base}_{i+1}.mp4" if num_motions > 1 else f"{base}.mp4"
+            output_path = os.path.join(output_dir, fname)
+            self.generate_preview(i, output_path)
 
 
-def view_motions_before_training(config_file: str, output_dir: str = "motion_previews"):
+def view_motions_before_training(config_file: str, output_dir: str = "motion_previews", character_model_override: str = None):
     """
     Preview motions specified in a config file before training
     
@@ -185,7 +176,11 @@ def view_motions_before_training(config_file: str, output_dir: str = "motion_pre
     # Get motion file
     motion_file = config.env_params.get("motion_file")
     character_model = config.env_params.get("character_model", "assets/humanoid.xml")
+    if character_model_override:
+        character_model = character_model_override
     
+    print(f"Character Model: {character_model}")
+
     if not motion_file:
         print("No motion file specified in config")
         return
@@ -221,18 +216,11 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description="View reference motions")
     parser.add_argument("config", type=str, help="Config file or motion file")
-    parser.add_argument("--output", type=str, default="motion_previews", 
+    parser.add_argument("--output", type=str, default="assets/motion_previews", 
                        help="Output directory for previews")
-    parser.add_argument("--motion-only", action="store_true",
-                       help="Directly view a motion file instead of config")
-    
+    parser.add_argument("--model", type=str, default=None,
+                       help="Optional path to character XML model")
+
     args = parser.parse_args()
-    
-    if args.motion_only:
-        # Direct motion file viewing
-        viewer = MotionViewer(args.config)
-        viewer.display_motion_info()
-        viewer.preview_all_motions(args.output)
-    else:
-        # Config-based viewing
-        view_motions_before_training(args.config, args.output)
+
+    view_motions_before_training(args.config, args.output, args.model)

@@ -42,7 +42,14 @@ We also refer to the extended implementation
 
 ![](doc/teaser_fight.png)
 
-## Code Usage
+## Code Usage - Overview
+
+This conversion replaces IsaacGym with MuJoCo for physics simulation while maintaining the same reinforcement learning algorithms (PPO) and model architectures. The key changes include:
+
+1. **Physics Engine**: Replaced IsaacGym with MuJoCo
+2. **Environment Interface**: Uses Gymnasium API instead of IsaacGym's custom API
+3. **Simulation**: CPU-based simulation (MuJoCo) instead of GPU-based (IsaacGym)
+4. **Rendering**: Uses MuJoCo's built-in renderer
 
 ### Dependencies
 - Pytorch 1.12

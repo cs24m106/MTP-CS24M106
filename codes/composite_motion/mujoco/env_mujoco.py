@@ -85,7 +85,7 @@ class MujocoEnv(gym.Env):
         # Setup rendering
         self.renderer = None
         if self.render_mode == "rgb_array":
-            self.renderer = mujoco.Renderer(self.model, height=480, width=640)
+            self.renderer = mujoco.Renderer(self.model, width=960, height=720) # 960x720 = 4:3,  1280:720 = 16:9, aspects
 
         # Passive interactive viewer (non-blocking) for human mode
         self.viewer = None
@@ -103,18 +103,9 @@ class MujocoEnv(gym.Env):
         self._setup_body_joint_info()
         # Setup action normalizer
         self.setup_action_normalizer()
+        # Setup state spaces
+        self.setup_state_spaces()
 
-        import sys, traceback
-        try:
-            self.setup_state_spaces()
-        except Exception as e:
-            print(f"ERROR :: Setting up StateSpaces :: {e}")
-            exc_type, exc_value, exc_traceback = sys.exc_info() # Get exception info
-            traceback.print_exception(exc_type, exc_value, exc_traceback) # Format and print the traceback
-
-    
-    def __del__(self):
-        self.executor.shutdown(wait=False)
 
     def setup_state_spaces(self):
         """ 
@@ -155,7 +146,8 @@ class MujocoEnv(gym.Env):
         self.viewer_advance = False
         self.request_quit = False
 
-        
+# ---------------------------------------------------------------------------------------------
+            
     def _load_mujoco_model(self):
         """Load MuJoCo model from XML"""
         # Load the first character model
@@ -201,6 +193,8 @@ class MujocoEnv(gym.Env):
     def train(self):
         self.training = True
 
+# ---------------------------------------------------------------------------------------------
+    
     def create_tensors(self):
         """Create tensors for state tracking"""
         # EXCLUDE world body (index 0)
@@ -249,7 +243,7 @@ class MujocoEnv(gym.Env):
                 if self.control_mode == "position":
                     action_lower.append(jnt_range[0])
                     action_upper.append(jnt_range[1])
-                    action_scale.append(1.0)         # If action  scales are large (>1.0) ← change from 2.0 to 1.0 to match IsaacGym convention
+                    action_scale.append(1.0)         # Use scale=1.0, actions are already normalized to [-1, 1]
                 else:  # torque control
                     # Get actuator force limits
                     actuator_id = -1
@@ -291,7 +285,8 @@ class MujocoEnv(gym.Env):
         self.action_tensor[:, self.actuated_dofs] = a  # Put 28 values into DOF indices [6-33]
         return self.action_tensor  # Return [1, 34] with zeros at indices [0-5]
     
-
+# ---------------------------------------------------------------------------------------------
+    
     def _sync_state_from_mujoco(self, env_idx: int = None):
         """Sync state from MuJoCo to tensors.
         If env_idx is None (default), syncs ALL environments using vectorized numpy ops.
@@ -393,7 +388,6 @@ class MujocoEnv(gym.Env):
             root_h = self.root_tensor[:, 2].detach().cpu().numpy()
             print(f"\n[Step {self.simulation_step}] Sync env-all (vectorized): root_h_vec={root_h}")
 
-
     def _sync_single_env_from_mujoco(self, env_idx: int):
         """Sync a single environment's state from its MjData to tensors"""
         data = self.data_list[env_idx]
@@ -457,6 +451,7 @@ class MujocoEnv(gym.Env):
         if self.verbose and self.simulation_step % 100 == 0 and env_idx == 0:
             print(f"\n[Step {self.simulation_step}] Sync env-{env_idx}: root_h={root_pos[2]:.3f}")
     
+# ---------------------------------------------------------------------------------------------
     
     def _apply_state_to_mujoco(self, env_idx: int = 0):
         """Apply state from tensors to MuJoCo.
@@ -500,8 +495,45 @@ class MujocoEnv(gym.Env):
         data.qpos[qpos_adr+7 : qpos_adr+7+n_joints] = self.joint_tensor[env_idx, :n_joints, 0].cpu().numpy()
         data.qvel[qvel_adr+6 : qvel_adr+6+n_joints] = self.joint_tensor[env_idx, :n_joints, 1].cpu().numpy()
 
+        # ── Ground-clearance clamp (FIX: QACC NaN at initialization) ────────────
+        # Reference-motion poses (e.g., mid-kick frames) can place feet below the
+        # ground plane. When the physics engine resolves this penetration on the
+        # first step it fires explosive constraint forces → QACC NaN on the root DOF.
+        # Fix: after writing all qpos, find the lowest geom contact point and lift
+        # the root body upward by the penetration depth before mj_forward is called.
+        # This costs one call to mj_kinematics (fast, no dynamics), and is only
+        # done during reset (caller pattern: _apply_state_to_mujoco → mj_forward).
+        # Run kinematics only (no dynamics) to get current geom positions
+        mujoco.mj_kinematics(self.model, data)   # fills data.geom_xpos
+        floor_geom_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, "floor")
+        min_z = float('inf')
+        for g in range(self.model.ngeom):
+            if g == floor_geom_id:
+                continue
+            body_id = self.model.geom_bodyid[g]
+            if body_id == 0:     # world body
+                continue
+            # Approximate lowest point: geom center z - half-size for sphere/box/capsule
+            gz = data.geom_xpos[g, 2]
+            gtype = self.model.geom_type[g]
+            gsize = self.model.geom_size[g]
+            if gtype == mujoco.mjtGeom.mjGEOM_SPHERE:
+                gz -= gsize[0]
+            elif gtype == mujoco.mjtGeom.mjGEOM_BOX:
+                gz -= gsize[2]
+            elif gtype == mujoco.mjtGeom.mjGEOM_CAPSULE:
+                gz -= gsize[0]   # radius (half-length is gsize[1])
+            min_z = min(min_z, gz)
+        
+        penetration = max(0.0, -min_z + 0.001)   # 1 mm safety margin
+        if penetration > 0.0:
+            data.qpos[qpos_adr + 2] += penetration  # lift root z
+        # ── end ground-clearance clamp ────────────────────────────────────────
+
         if self.verbose and self.simulation_step % 100 == 0 and env_idx == 0:
-            print(f"\n[Step {self.simulation_step}] _apply_state_to_mujoco(env={env_idx}): qpos_adr={qpos_adr}")
+            print(f"\n[Step {self.simulation_step}] _apply_state_to_mujoco(env={env_idx}): qpos_adr={qpos_adr}, penetration_lift={penetration:.4f}")
+    
+# ---------------------------------------------------------------------------------------------
     
     def reset(self, seed=None, options=None):
         """Reset all environments"""
@@ -581,6 +613,8 @@ class MujocoEnv(gym.Env):
         
         return ref_link_tensor, ref_joint_tensor
     
+# ---------------------------------------------------------------------------------------------
+
     def do_simulation(self):
         """Step physics simulation for all environments Parallely"""
         def step_single(eid): # thread fn
@@ -655,6 +689,8 @@ class MujocoEnv(gym.Env):
             print(f"  Joint pos (first 10): {self.data.qpos[6:6+10]}")
             print(f"  Root height: {self.data.xpos[self.root_body_id][2]:.4f}")
     
+# ---------------------------------------------------------------------------------------------
+
     def _observe_single(self) -> torch.Tensor:
         """Observe single environment"""
         self._sync_state_from_mujoco(0)
@@ -698,6 +734,8 @@ class MujocoEnv(gym.Env):
         """Compute rewards - no task reward for base class"""
         return torch.ones((self.n_envs, 0), dtype=torch.float32, device=self.device)
     
+# ---------------------------------------------------------------------------------------------
+    
     def render(self):
         """
         Render environment
@@ -709,7 +747,7 @@ class MujocoEnv(gym.Env):
         # Offscreen renderer -> return numpy frame
         if self.render_mode == "rgb_array":
             if self.renderer is None: # lazy create if not present
-                self.renderer = mujoco.Renderer(self.model, height=480, width=640)
+                self.renderer = mujoco.Renderer(self.model, width=960, height=720) # 960x720 = 4:3,  1280:720 = 16:9, aspects
 
             # ADDED: Set camera position for third-person view to follow character
             if self.camera_following:
@@ -761,16 +799,18 @@ class MujocoEnv(gym.Env):
         
         return None
 
+    def __del__(self):
+        self.executor.shutdown(wait=False)
+        #self.close()
 
-    
     def close(self):
         """Close environment"""
-        if self.renderer is not None:
+        if hasattr(self, "renderer") and self.renderer is not None:
             try:
                 self.renderer.close()
             except Exception:
                 pass
-        if self.viewer is not None:
+        if hasattr(self, "viewer") and self.viewer is not None:
             try:
                 self.viewer.close()
             except Exception:

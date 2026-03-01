@@ -318,22 +318,47 @@ class ICCGANHumanoid(MujocoEnv):
     
     def observe_disc(self, state):
         """Observe for discriminator"""
-        seq_len = self.info["ob_seq_lens"] # already has +1 from observe()
+        # FIX (secondary bug): self.info["ob_seq_lens"] is set in reset_done() and is NOT
+        # updated when step() calls observe() internally. By the time observe_disc() runs
+        # (inside step(), after observe()), self.ob_seq_lens has been refreshed but
+        # self.info["ob_seq_lens"] still holds the value from the *previous* reset_done call.
+        # Fix: read self.ob_seq_lens directly — it is always current.
+        seq_len = self.ob_seq_lens   # ← was self.info["ob_seq_lens"] (stale reference)
         res = dict()
-        
+
+        if self.verbose and self.simulation_step % 100 == 0:
+            print(f"\n[Step {self.simulation_step}] observe_disc() check:")
+
         if torch.is_tensor(state):
-            # Fake
+            # Fake — build discriminator observations from current state history
             for id, disc in self.discriminators.items():
-                res[id] = observe_iccgan_safe(state[-disc.ob_horizon:], seq_len, disc.key_links, disc.parent_link,
-                    include_velocity=False, local_pos=disc.local_pos)
+                ob = observe_iccgan_safe(
+                    state[-disc.ob_horizon:], seq_len,
+                    disc.key_links, disc.parent_link,
+                    include_velocity=False, local_pos=disc.local_pos
+                )
+                res[id] = ob
+                # ---- DEBUG: check that we're not feeding all-zeros into the disc ----
+                if self.verbose and self.simulation_step % 100 == 0:
+                    # ob shape: [n_envs, disc.ob_horizon, features]
+                    # Valid frames are packed at positions [0 .. seq_len-1].
+                    # The discriminator will read the GRU output at position (seq_len-1),
+                    # so check that position is non-zero.
+                    ef = (seq_len - 1).clamp(max=ob.size(1)-1)
+                    norm_at_ef = ob[torch.arange(ob.size(0), device=ob.device), ef].norm(dim=-1).mean().item()
+                    print(f"    [OBS-DBG][{id}] disc ob@(seq_len-1): norm={norm_at_ef:.4f}"
+                          f"  seq_len=[{seq_len.min()}-{seq_len.max()}]  ob_shape={tuple(ob.shape)}")
             return res
         else:
-            # Real
+            # Real — state is a dict of pre-built tensors (from fetch_real_samples)
             seq_len_ = dict()
             for disc_name, s in state.items():
                 disc = self.discriminators[disc_name]
-                res[disc_name] = observe_iccgan_safe(s[-disc.ob_horizon:], seq_len, disc.key_links, disc.parent_link,
-                    include_velocity=False, local_pos=disc.local_pos)
+                res[disc_name] = observe_iccgan_safe(
+                    s[-disc.ob_horizon:], seq_len,
+                    disc.key_links, disc.parent_link,
+                    include_velocity=False, local_pos=disc.local_pos
+                )
                 seq_len_[disc_name] = seq_len
             return res, seq_len_
     
@@ -371,7 +396,7 @@ class ICCGANHumanoid(MujocoEnv):
         if self.contactable_links is None:
             return torch.zeros_like(self.done)
         
-        # Check contact forces
+        # Check contact forces — requires contact_force_tensor to be current (updated in _sync_state_from_mujoco)
         contacted = torch.any(self.char_contact_force_tensor.abs() > 1., dim=-1)
         
         # Check height
@@ -385,14 +410,24 @@ class ICCGANHumanoid(MujocoEnv):
         
         terminate = torch.any(torch.logical_and(contacted, too_low), -1)
         terminate *= (self.lifetime > 1)
+        
+        # ---- DEBUG: show why/how often we terminate ----
+        if self.verbose and self.simulation_step % 100 == 0:
+            n_contact  = contacted.sum().item()
+            n_too_low  = too_low.any(-1).sum().item()
+            n_term     = terminate.sum().item()
+            root_h_min = self.link_pos[:, 0, self.UP_AXIS].min().item()  # pelvis
+            cf_max     = self.char_contact_force_tensor.abs().max().item()
+            print(f"  [TERM-DBG] step={self.simulation_step:5d} | "
+                  f"contacted={n_contact}/{self.n_envs}  too_low={n_too_low}/{self.n_envs}  "
+                  f"terminate={n_term} | root_h_min={root_h_min:.3f}  cf_max={cf_max:.2f}")
+        
         return terminate
     
     def reward(self):
         """Optional feature for ICCGAN - use default for pretrained weights of composite_motion"""
         # defualt 0 task rewards (rew_dim = 0) i.e. trained only on 1 discriminator
         return super().reward()
-        # switch return statements if u want to add plain 1s for task based reward
-        #return torch.ones((self.n_envs, 1), dtype=torch.float32, device=self.device)
 
 
 class ICCGANHumanoidTarget(ICCGANHumanoid):
