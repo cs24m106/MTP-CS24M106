@@ -67,9 +67,11 @@ Download Mujuco from the [official site](https://mujoco.org/) and install it via
 
 We provide our configure files in `config` folder for reference. To reproduce the examples shown in the paper, 
 
-e.g. `jaunty_walk, please run the training by
+e.g. `diff walks, please run the training by (will create sub folder automatically based on config file name)
 
-    $ python main.py config/iccgan/jaunty_walk.py --ckpt checkpoints/jaunty_walk
+    $ python main.py config/iccgan/jaunty_walk.py --ckpt checkpoints    # Standalone Run
+    $ python main.py config/iccgan/limp_walk.py --ckpt checkpoints      # Phase Input - looped motion improvement
+    $ python main.py config/iccgan/joyful_walk.py --ckpt checkpoints    # Symmetry Loss - mirror clip mimicability
 
 e.g. `Juggling+Walk`, please run the training by
 

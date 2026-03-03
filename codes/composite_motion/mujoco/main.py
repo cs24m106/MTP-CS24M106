@@ -77,13 +77,23 @@ TRAINING_PARAMS = dict(
     gamma = 0.95,
     lambda_ = 0.95,
     disc_lr = 5e-6,         # default = 1e-5, slow it when incresing horizon, to give policy time to respond
+    log_interval = 10,
+    control_mode="position",
+    # update xml for differ model simulations, but make sure no.of body parts are same
+    character_model=os.path.join("assets", "humanoid_posctrl_v2.xml"),
+    term_height = 0.10,     # default = 0.15
+    grace_steps = 3,        # default <= 1
+# ---- ---- ---- ---- ---- Best to update bottom params in config.py and top params here (for convienience) ---- ---- ---- ---- ----
     max_epochs = 10000,     # 10000 iterations / 8 per PPO epoch = 125 PPO epochs --> in each training loop
     save_interval = 500,
-    log_interval = 10,
-    terminate_reward = -5,  # default = -1
-    control_mode="position",
-    character_model=os.path.join("assets", "humanoid_posctrl.xml"),
-    # update xml for differ model simulations, but make sure no.of body parts are same
+    terminate_reward = -1,  # default = -1, update in config file
+    # --- (NEW) Phase Input: Phase-conditioned observations ---
+    # Set use_phase_obs=True when motion is looped for better results.
+    use_phase_obs = False,
+    # phase_period --> gait cycle, best to calc from ref-motion
+    # --- (NEW) Symmetry Regularization: Bilateral symmetry loss ---
+    # Set sym_loss_coeff > 0 to enable. Recommended start: 0.005
+    sym_loss_coeff = 0.0,
 )
 
 

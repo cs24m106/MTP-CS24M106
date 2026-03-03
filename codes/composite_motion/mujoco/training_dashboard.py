@@ -358,7 +358,7 @@ class TrainingDashboard:
 
     def run(self):
         """Run the dashboard"""
-        print(f"Monitoring (Press Ctrl+C to exit): {self.csv_path}")
+        print(f"Monitoring: {self.csv_path} (Press Ctrl+C to exit)")
         
         # Optimized: increased interval and enabled blitting for smoother performance
         ani = FuncAnimation(self.fig, self.update_plots, interval=3000, blit=False, cache_frame_data=False)

@@ -7,7 +7,8 @@ env_params = dict(
 training_params = dict(
     max_epochs = 5000,
     save_interval = 250,
-    terminate_reward = -1
+    terminate_reward = -1,
+    sym_loss_coeff = 0.005,
 )
 
 discriminators = {

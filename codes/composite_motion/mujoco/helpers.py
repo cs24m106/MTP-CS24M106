@@ -9,6 +9,25 @@ import warnings
 warnings.filterwarnings("ignore", category=ResourceWarning)
 from training_dashboard import TrainingDashboard
 
+# ---------------------------------------------------------------------------
+# Symmetry Regularization: Bilateral symmetry loss constants
+# Joint order (0-indexed) for the 28-DOF humanoid actuator sequence:
+#   0-2: abdomen (x,y,z)   3-5: neck (x,y,z)
+#   6-9: right shoulder (x,y,z), right elbow
+#   10-13: left shoulder (x,y,z), left elbow
+#   14-17: right hip (x,z,y), right knee
+#   18-20: right ankle (x,y,z)
+#   21-24: left hip (x,z,y), left knee
+#   25-27: left ankle (x,y,z)
+_SYM_RIGHT_IDX = [6,  7,  8,  9,  14, 15, 16, 17, 18, 19, 20]
+_SYM_LEFT_IDX  = [10, 11, 12, 13, 21, 22, 23, 24, 25, 26, 27]
+# Sign convention for mirroring across the sagittal (y) plane:
+#  +1 = joint action is the same on both sides (sagittal axis, y)
+#  -1 = joint action is sign-flipped when mirrored (lateral/rotational, x or z)
+# Order: sh_x, sh_y, sh_z, elbow | hip_x, hip_z, hip_y, knee | ank_x, ank_y, ank_z
+_SYM_SIGNS = [-1., +1., -1., +1.,   -1., -1., +1., +1.,   -1., +1., -1.]
+# ---------------------------------------------------------------------------
+
 # Custom formatting for loss and reward: space for positive, minus for negative
 def fmt_signed(val):
     return f" {val:7.4f}" if val >= 0 else f"{val:8.4f}"
@@ -145,7 +164,7 @@ def train(env, model, ckpt_dir, training_params, init_epoch=0):
         csv_log_path = os.path.join(ckpt_dir, "training_metrics.csv")
         
         # Define CSV columns based on metrics being tracked
-        csv_columns = ["epoch", "lifetime", "reward_mean", "policy_loss", "value_loss"]
+        csv_columns = ["epoch", "lifetime", "reward_mean", "policy_loss", "value_loss", "sym_loss"]
         
         # Add discriminator score columns if present
         if env.discriminators:
@@ -517,7 +536,7 @@ def train(env, model, ckpt_dir, training_params, init_epoch=0):
             epoch += 1
             update_epoch = init_epoch + epoch
             model.train()
-            policy_loss, value_loss = [], []
+            policy_loss, value_loss, sym_loss = [], [], []
             
             # Clamp batch size to available samples (e.g. n_envs=1, horizon=8 → 8 samples total)
             eff_batch = min(BATCH_SIZE, n_samples)
@@ -537,21 +556,34 @@ def train(env, model, ckpt_dir, training_params, init_epoch=0):
 
                         pi_, v_ = model(s, end_frame)
                         lp_ = pi_.log_prob(a).sum(-1, keepdim=True)
-
+                        
                         ratio = torch.exp(lp_ - lp)
                         clipped_ratio = torch.clamp(ratio, 1.0 - 0.2, 1.0 + 0.2)
                         pg_loss = -torch.min(adv * ratio, adv * clipped_ratio).sum(-1).mean()
                         vf_loss = (v_ - v_t).square().mean()
+                        
+                        # Symmetry Regularization: Bilateral symmetry loss
+                        # Penalises asymmetric mean actions across left/right joint pairs.
+                        # Only active when sym_loss_coeff > 0 in training_params.
+                        sym_penality = torch.tensor(0.0, device=env.device)
+                        sym_loss_coeff = getattr(training_params, 'sym_loss_coeff', 0.0)
+                        if sym_loss_coeff > 0.0:
+                            sym_signs = torch.tensor(
+                                _SYM_SIGNS, dtype=torch.float32, device=env.device
+                            )
+                            mu_r = pi_.mean[:, _SYM_RIGHT_IDX]
+                            mu_l = pi_.mean[:, _SYM_LEFT_IDX]
+                            sym_penality = sym_loss_coeff * ((mu_r - sym_signs * mu_l) ** 2).mean()                            
 
-                        # NaN guard: skip this batch if loss is invalid
-                        if torch.isnan(pg_loss) or torch.isnan(vf_loss) or \
-                           torch.isinf(pg_loss) or torch.isinf(vf_loss):
+                        # NaN guard: skip this batch if loss is invalid (include sym_penality)
+                        if torch.isnan(pg_loss) or torch.isnan(vf_loss) or torch.isnan(sym_penality) or \
+                           torch.isinf(pg_loss) or torch.isinf(vf_loss) or torch.isinf(sym_penality):
                             print(f"[WARNING] Epoch {update_epoch} batch {batch}: "
-                                  f"NaN/Inf in loss (pg={pg_loss.item():.4f}, vf={vf_loss.item():.4f}), skipping.")
+                                  f"NaN/Inf in loss (pg={pg_loss.item():.4f}, vf={vf_loss.item():.4f}, sym={sym_penality.item():.4f}), skipping.")
                             optimizer.zero_grad()
                             continue
 
-                        loss = pg_loss + 0.5 * vf_loss
+                        loss = pg_loss + 0.5 * vf_loss + sym_penality
                         loss.backward()
                         torch.nn.utils.clip_grad_norm_(ac_parameters, 1.0)
                         optimizer.step()
@@ -559,6 +591,7 @@ def train(env, model, ckpt_dir, training_params, init_epoch=0):
                         
                         policy_loss.append(pg_loss.item())
                         value_loss.append(vf_loss.item())
+                        sym_loss.append(sym_penality.item())
             
             model.eval()
             for v in buffer.values():
@@ -571,6 +604,7 @@ def train(env, model, ckpt_dir, training_params, init_epoch=0):
                 lifetime = env.lifetime.to(torch.float32).mean().item()
                 policy_loss = np.mean(policy_loss) if policy_loss else float('nan')
                 value_loss  = np.mean(value_loss)  if value_loss  else float('nan')
+                sym_loss = np.mean(sym_loss) if sym_loss else float('nan')
                 
                 if multi_critics:
                     rewards = rewards.view(*reward_weights.shape)
@@ -587,11 +621,12 @@ def train(env, model, ckpt_dir, training_params, init_epoch=0):
                     for name, disc_r in disc_rewards.items():
                         disc_reward_means[name] = disc_r.mean().item()
                 
-                if env.verbose: print()
-                print("Epoch: {:4d}, Loss: policy={} / value={}, Reward: {}, Lifetime: {} -- {:.4f}s{}".format(
+                if env.verbose: print() # display the loss values
+                print("Epoch: {:4d}, Loss: policy={} / value={} / sym={}, Reward: {}, Lifetime: {} -- {:.4f}s{}".format(
                     update_epoch,
                     fmt_signed(policy_loss),
                     fmt_signed(value_loss),
+                    fmt_signed(sym_loss),
                     "/".join([fmt_signed(x) for x in r]), # stringify rewards
                     fmt_float(lifetime),
                     time.time() - tic,
@@ -603,6 +638,7 @@ def train(env, model, ckpt_dir, training_params, init_epoch=0):
                     logger.add_scalar("train/reward", np.mean(r), update_epoch)
                     logger.add_scalar("train/loss_policy", policy_loss, update_epoch)
                     logger.add_scalar("train/loss_value", value_loss, update_epoch)
+                    logger.add_scalar("train/loss_symmetry", sym_loss, update_epoch)
                     
                     for name, r_loss in real_losses.items():
                         if r_loss:
@@ -628,7 +664,8 @@ def train(env, model, ckpt_dir, training_params, init_epoch=0):
                         "lifetime": lifetime,
                         "reward_mean": np.mean(r),
                         "policy_loss": policy_loss,
-                        "value_loss": value_loss
+                        "value_loss": value_loss,
+                        "sym_loss": sym_loss
                     }
                     
                     # Add discriminator scores

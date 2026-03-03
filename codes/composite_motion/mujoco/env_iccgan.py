@@ -24,7 +24,9 @@ class ICCGANHumanoid(MujocoEnv):
     OB_HORIZON = 4
     KEY_LINKS = None  # All links
     PARENT_LINK = None  # root link
-    
+    TERMINATION_HEIGHT_THRESHOLD = 0.15  # Default: 0.15 (meters) --> no need to reduce as we already grace step impleted
+    TERMINATION_GRACE_STEPS = 1          # ADDED: Require N consecutive frames below threshold
+
     def __init__(self, *args,
         motion_file: str,
         discriminators: Dict[str, DiscriminatorConfig],
@@ -37,6 +39,11 @@ class ICCGANHumanoid(MujocoEnv):
         self.ob_horizon = kwargs.get("ob_horizon", self.OB_HORIZON)
         self.key_links_names = kwargs.get("key_links", self.KEY_LINKS)
         self.parent_link_name = kwargs.get("parent_link", self.PARENT_LINK)
+        self.term_height = kwargs.get("term_height", self.TERMINATION_HEIGHT_THRESHOLD)
+        self.grace_steps  = kwargs.get("grace_steps", self.TERMINATION_GRACE_STEPS)       # no.of consecutive frames required
+        # Phase-conditioned observations
+        self.use_phase_obs = kwargs.pop("use_phase_obs", False)
+        self.phase_period  = float(kwargs.pop("phase_period", 1.0))
         
         # initialize max_ob_horizon first itself, so base class can setup_state_spaces() correctly
         self.max_ob_horizon = self.ob_horizon + 1
@@ -56,7 +63,7 @@ class ICCGANHumanoid(MujocoEnv):
         if self.contactable_links_names is None:
             self.contactable_links = None
         else:
-            contact = np.full((n_envs, n_links), 0.15)
+            contact = np.full((n_envs, n_links), float(self.term_height))
             if not isinstance(self.contactable_links_names, dict):
                 contactable_links_dict = {link: -10000 for link in self.contactable_links_names}
             else:
@@ -150,7 +157,7 @@ class ICCGANHumanoid(MujocoEnv):
             self.reward_weights[:, -self.rew_dim:] = reward_weights
         
         self.info["ob_seq_lens"] = torch.zeros_like(self.lifetime)  # dummy result
-        self.goal_dim = self.GOAL_DIM
+        self.goal_dim = self.GOAL_DIM + (2 if self.use_phase_obs else 0) # phase encoding adds 2 dims to the goal slice (sin/cos of phase)
         self.state_dim = (self.ob_dim - self.goal_dim) // self.ob_horizon
         
         if self.discriminators:
@@ -164,21 +171,37 @@ class ICCGANHumanoid(MujocoEnv):
             self.disc_dim = {}
         
         # Load reference motion
-        self.ref_motion = self.build_motion_lib(motion_file)
+        self.build_motion_lib(motion_file)
+        if "phase_period" not in kwargs and self.ref_motion.period > 0: # overwrite if not passed as training args
+            print(f"Ref-Motion :: Phase Input overwrites phase_period: {self.phase_period} -> {self.ref_motion.period}\n")
+            self.phase_period = self.ref_motion.period
+            
         self.sampling_workers = []
         self.real_samples = []
     
     def build_motion_lib(self, motion_file):
         """Build reference motion library"""
-        return ReferenceMotion(
+        self.ref_motion = ReferenceMotion(
             motion_file=motion_file, 
             character_model=self.character_model, 
             device=self.device
         )
+        # @overwrite prev calc in base class for refernce motion data
+        if self.ref_motion.fps > 0: 
+            print(f"Build Ref-Motion overwrites fps: {self.fps} -> {self.ref_motion.fps}")
+            self.fps = self.ref_motion.fps
+            self.frameskip = int(self.run_speed/self.fps)
+            self.step_time = 1.0 / self.fps
 
-    def reset_envs(self, env_ids): # overwrite for extra handling
-        super().reset_envs(env_ids)
-        self.state_hist[:, env_ids] = 0.0   # ← add this line
+    def reset_envs(self, env_ids):  # overwrite for extra handling
+        super().reset_envs(env_ids)          # calls init_state → sets env_motion_times
+        self.state_hist[:, env_ids] = 0.0
+        self.terminate_counter[env_ids] = 0 
+        # Phase Input: seed phase from the motion time sampled in init_state
+        if self.use_phase_obs:
+            self.env_phase[env_ids] = (
+                self.env_motion_times[env_ids] % self.phase_period
+            ) / self.phase_period
 
     def reset_done(self):
         """Reset done environments and return observations with info"""
@@ -221,7 +244,16 @@ class ICCGANHumanoid(MujocoEnv):
         self.char_joint_tensor = self.joint_tensor
         
         self.char_contact_force_tensor = self.contact_force_tensor
-        
+        # Grace counter for termination (tracks consecutive low-height frames)
+        self.terminate_counter = torch.zeros((self.n_envs,), dtype=torch.int32, device=self.device)
+
+        # Phase-conditioned observation tensors
+        if self.use_phase_obs:
+            # env_phase ∈ [0, 1): normalised position within one motion cycle
+            self.env_phase = torch.zeros((self.n_envs,), dtype=torch.float32, device=self.device)
+            # env_motion_times: start time sampled from ref motion, used to seed phase on reset
+            self.env_motion_times = torch.zeros((self.n_envs,), dtype=torch.float32, device=self.device)
+
         # Setup state history (NOTE: self.max_ob_horizon must be initilized before)
         self.state_hist = torch.zeros((self.max_ob_horizon, self.n_envs, n_links * 13),
             dtype=torch.float32, device=self.device)
@@ -272,6 +304,12 @@ class ICCGANHumanoid(MujocoEnv):
         if ground_height is not None:
             ref_link_tensor[:, :, 2] += ground_height.unsqueeze(1)
         
+        # Phase Input: store sampled motion times so reset_envs can seed phase from them
+        if self.use_phase_obs:
+            self.env_motion_times[env_ids] = torch.from_numpy(
+                np.array(motion_times, dtype=np.float32)
+            ).to(self.device)
+        
         return ref_link_tensor, ref_joint_tensor
     
     def ground_height(self, p, env_ids=None):
@@ -280,7 +318,6 @@ class ICCGANHumanoid(MujocoEnv):
     
     def observe(self, env_ids=None):
         """Observe with ICCGAN observation function"""
-        # FIX: When lifetime > 4, the masking in observe_iccgan_safe breaks and returns wrong observation frames.
         self.ob_seq_lens = torch.clamp(self.lifetime + 1, max=self.ob_horizon)
         n_envs = self.n_envs
         
@@ -288,6 +325,10 @@ class ICCGANHumanoid(MujocoEnv):
             self.state_hist[:-1] = self.state_hist[1:].clone()
             self.state_hist[-1] = self.char_link_tensor.view(n_envs, -1)
             env_ids = None
+            # Phase Input: advance phase for ALL envs each simulation step (full-env call only)
+            # Subset calls (reset envs) already have correct phase set in reset_envs()
+            if self.use_phase_obs:
+                self.env_phase = (self.env_phase + self.step_time / self.phase_period) % 1.0
         else:
             n_envs = len(env_ids)
             self.state_hist[:-1, env_ids] = self.state_hist[1:, env_ids].clone()
@@ -304,17 +345,32 @@ class ICCGANHumanoid(MujocoEnv):
         """Internal ICCGAN observation"""
         if env_ids is None:
             ground_height = self.ground_height(self.state_hist[-1, :, :3])
-            return observe_iccgan_safe(
+            obs = observe_iccgan_safe(
                 self.state_hist[-self.ob_horizon:], self.ob_seq_lens, self.key_links, self.parent_link,
                 ground_height=ground_height
             ).flatten(start_dim=1)
+            # Phase Input: append (sin, cos) phase encoding — bounded [-1,1], no normalisation needed
+            if self.use_phase_obs:
+                phase_enc = torch.stack([
+                    torch.sin(2.0 * np.pi * self.env_phase),
+                    torch.cos(2.0 * np.pi * self.env_phase),
+                ], dim=-1)
+                obs = torch.cat([obs, phase_enc], dim=-1)
         else:
             ground_height = self.ground_height(self.state_hist[-1, env_ids, :3], env_ids)
-            return observe_iccgan_safe(
-                self.state_hist[-self.ob_horizon:][:, env_ids], self.ob_seq_lens[env_ids], 
+            obs = observe_iccgan_safe(
+                self.state_hist[-self.ob_horizon:][:, env_ids], self.ob_seq_lens[env_ids],
                 self.key_links, self.parent_link,
                 ground_height=ground_height
             ).flatten(start_dim=1)
+            # Phase Input: append phase encoding for subset
+            if self.use_phase_obs:
+                phase_enc = torch.stack([
+                    torch.sin(2.0 * np.pi * self.env_phase[env_ids]),
+                    torch.cos(2.0 * np.pi * self.env_phase[env_ids]),
+                ], dim=-1)
+                obs = torch.cat([obs, phase_enc], dim=-1)
+        return obs
     
     def observe_disc(self, state):
         """Observe for discriminator"""
@@ -407,10 +463,25 @@ class ICCGANHumanoid(MujocoEnv):
             low_threshold = self.contactable_links + ground_height.unsqueeze(1)
         
         too_low = self.link_pos[..., self.UP_AXIS] < low_threshold
-        
-        terminate = torch.any(torch.logical_and(contacted, too_low), -1)
-        terminate *= (self.lifetime > 1)
-        
+
+        # --- grace logic: require N consecutive frames of (contacted & too_low) before terminating ---
+        # cond_per_link: shape [n_envs, n_links]
+        cond_per_link = torch.logical_and(contacted, too_low)
+
+        # cond_env is True if any link in that env meets the cond
+        cond_env = torch.any(cond_per_link, dim=-1)  # shape [n_envs]
+
+        # increment where cond_env True, reset where False
+        # make sure dtype matches terminate_counter
+        incr = cond_env.to(self.terminate_counter.dtype)
+        # increment
+        self.terminate_counter = self.terminate_counter + incr
+        # reset counters where condition false
+        self.terminate_counter *= incr
+
+        # terminate when counter >= grace AND lifetime > 1 (preserves earlier lifetime check)
+        terminate = (self.terminate_counter >= int(self.grace_steps)) & (self.lifetime > 1)
+
         # ---- DEBUG: show why/how often we terminate ----
         if self.verbose and self.simulation_step % 100 == 0:
             n_contact  = contacted.sum().item()
@@ -419,8 +490,8 @@ class ICCGANHumanoid(MujocoEnv):
             root_h_min = self.link_pos[:, 0, self.UP_AXIS].min().item()  # pelvis
             cf_max     = self.char_contact_force_tensor.abs().max().item()
             print(f"  [TERM-DBG] step={self.simulation_step:5d} | "
-                  f"contacted={n_contact}/{self.n_envs}  too_low={n_too_low}/{self.n_envs}  "
-                  f"terminate={n_term} | root_h_min={root_h_min:.3f}  cf_max={cf_max:.2f}")
+                f"contacted={n_contact}/{self.n_envs}  too_low={n_too_low}/{self.n_envs}  "
+                f"terminate={n_term} | root_h_min={root_h_min:.3f}  cf_max={cf_max:.2f}")
         
         return terminate
     

@@ -161,6 +161,9 @@ class ReferenceMotion():
         device: Optional[torch.device]=None
     ):
         self.device = device
+        self.fps = 0.0
+        self.n_frames = 0
+        self.period = 0.0
 
         skeleton = load_mjcf(character_model)
         self.dofs = [d[2] for d in skeleton.dofs]
@@ -169,10 +172,26 @@ class ReferenceMotion():
         controllable_links = sorted(list(set([d[1] for d in skeleton.dofs])))
         motions = []
         if type(motion_file) == str:
-            motions.extend(self.load_motions(motion_file, skeleton, controllable_links, key_links))
+            m,n,f,t = self.load_motions(motion_file, skeleton, controllable_links, key_links)
+            motions.extend(m)
+            self.n_frames = n
+            self.fps = int(f)
+            self.period = t
+
         else:
-            for m in motion_file:
-                motions.extend(self.load_motions(m, skeleton, controllable_links, key_links))
+            for data in motion_file:
+                m,n,f,t = self.load_motions(data, skeleton, controllable_links, key_links)
+                motions.extend(m)
+                self.n_frames += n
+                self.fps += f
+                self.period += t
+            # assume different files are different rand-seek options, we take avg to maintain consistency
+            l = len(motion_file)
+            assert l > 0
+            self.n_frames = self.n_frames / l
+            self.fps = round(self.fps / l)
+            self.period = self.period / l
+        
         self.prepare_data(motions)
 
     def prepare_data(self, motions):
@@ -219,15 +238,18 @@ class ReferenceMotion():
 
     def load_motions(self, motion_file, skeleton, controllable_links, key_links):
         motions = []
+        avg_fps = 0
+        n_frames = 0
         ext = os.path.splitext(motion_file)[1]
         if ext == ".joblib":
             if "joblib" not in globals():
                 import joblib
             data = joblib.load(motion_file)
             motion_len = 0
-            n_frames = 0
             for motion in data:
-                dt = 1.0 / motion.fps
+                fps = motion.fps
+                avg_fps += fps
+                dt = 1.0 / fps
                 weight = None
                 motions.append((
                     motion.pos[:,key_links],
@@ -242,9 +264,10 @@ class ReferenceMotion():
                 n_frame = len(motion.pos)
                 n_frames += n_frame
                 motion_len += dt*n_frame
+            avg_fps = avg_fps / len(data)
             print("Loading {:d} motions from {:s}".format(len(motions), motion_file))
-            print("\t{:.4f}s, {:d} frames".format(motion_len, n_frames))
-            return motions
+            print("\t{:.4f}s, {:2f} Hz (avg), {:d} frames.".format(motion_len, avg_fps, n_frames))
+            return motions, n_frames, avg_fps, motion_len
         
         if ext == ".yaml":
             with open(motion_file, 'r') as f:
@@ -260,6 +283,7 @@ class ReferenceMotion():
             motion_weights = [None]
 
         n_motion_files = len(motion_files)
+        sum_motion_len = 0
         for f, (w, motion_file) in enumerate(zip(motion_weights, motion_files)):
             print(">>> Ref-Motion :: Loading {:d}/{:d} motion files: {:s}".format(f + 1, n_motion_files, motion_file))
 
@@ -272,7 +296,7 @@ class ReferenceMotion():
                     fps = motion_data["fps"]
                 else:
                     fps = 1 / motion_data["sampling_rate"]
-                n_frames = len(motion_data["frames"])
+                n_frame = len(motion_data["frames"])
 
                 r, t = [], []
                 for frame in motion_data["frames"]:
@@ -304,11 +328,14 @@ class ReferenceMotion():
             else:
                 with open(motion_file, "rb") as _:
                     motion = pickle.load(_)
-                n_frames = len(motion.pos)
+                n_frame = len(motion.pos)
                 fps = motion.fps
             
+            avg_fps += fps
+            n_frames += n_frame
             dt = 1.0 / fps
-            motion_len = dt * (n_frames - 1)
+            motion_len = dt * (n_frame - 1)
+            sum_motion_len += motion_len
 
             motions.append((
                 motion.pos[:,key_links],
@@ -321,8 +348,10 @@ class ReferenceMotion():
                 dt, w
             ))
 
-            print("\t\t{:.4f}s, {:d} Hz, {:d} frames.".format(motion_len, fps, n_frames))
-        return motions
+            print("\t\t{:.4f}s, {:d} Hz, {:d} frames.".format(motion_len, fps, n_frame))
+        avg_fps = avg_fps / len(motion_files)
+        print("\t{:.4f}s (total), {:2f} Hz (avg), {:d} frames (total).".format(sum_motion_len, avg_fps, n_frames))
+        return motions, n_frames, avg_fps, sum_motion_len
 
     def sample(self, n, truncate_time=None):
         motion_ids = np.random.choice(len(self.motion_length), size=n, p=self.motion_weight, replace=True)
