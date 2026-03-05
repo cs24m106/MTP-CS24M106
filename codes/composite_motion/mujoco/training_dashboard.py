@@ -13,9 +13,11 @@ from collections import deque
 
 class TrainingDashboard:
     """Real-time training monitoring dashboard"""
-    def __init__(self, csv_path, window_size=None):
+    def __init__(self, csv_path, window_size=None, frames_per_cycle=30, cycles_per_episode=1):
         self.csv_path = csv_path
         self.window_size = window_size
+        self.frames_per_cycle = frames_per_cycle
+        self.cycles_per_episode = cycles_per_episode
         
         # Data buffers
         if self.window_size is None:
@@ -65,8 +67,18 @@ class TrainingDashboard:
         self.ax_lifetime.set_xlabel('Epoch')
         self.ax_lifetime.set_ylabel('Steps')
         self.line_lifetime, = self.ax_lifetime.plot([], [], 'b-', linewidth=1.5, label='Lifetime')
-        #self.ax_lifetime.legend()
-        self.ax_lifetime.grid(True, alpha=0.3)
+        self.ax_lifetime.grid(True, alpha=0.2)
+
+        # Add benchmark lines for lifetime based on frames_per_cycle and cycles_per_episode
+        self.benchmark_texts = []  # Store text objects to avoid recreation
+        for i in range(self.cycles_per_episode + 1):
+            benchmark_y = i * self.frames_per_cycle
+            line = self.ax_lifetime.axhline(y=benchmark_y, color='darkgray', linewidth=0.8,linestyle='--')
+            # Using get_yaxis_transform() keeps text anchored to right edge of plot area
+            txt = self.ax_lifetime.text(1.02, benchmark_y, f'cy[{i}]:{benchmark_y:3d}s', 
+                                        transform=self.ax_lifetime.get_yaxis_transform(),
+                                        fontsize=6, va='center', ha='left', alpha=0.7, color='magenta')
+            self.benchmark_texts.append(txt)
         
         # Plot 2: Discriminator Scores
         self.ax_disc = self.axes[0, 1]
@@ -108,7 +120,7 @@ class TrainingDashboard:
         self.ax_gap.set_xlabel('Epoch')
         self.ax_gap.set_ylabel('Gap')
         # Gap Baselines
-        self.ax_gap.axhline(y=0.2, color='k', linewidth=.8, linestyle='--', alpha=0.5, label='Warning (0.2)')
+        self.ax_gap.axhline(y=0.25, color='k', linewidth=.8, linestyle='--', alpha=0.5, label='Warning (0.25)')
         self.ax_gap.axhline(y=0.5, color='k', linewidth=.8, linestyle='-', alpha=0.5, label='Critical (0.5)')
         self.ax_gap.legend()
         self.ax_gap.grid(True, alpha=0.3)
@@ -118,7 +130,7 @@ class TrainingDashboard:
         self.ax_health.set_title('Training Health')
         self.ax_health.axis('off')
         self.health_text = self.ax_health.text(0.5, 0.5, '', transform=self.ax_health.transAxes,
-                                                fontsize=8, verticalalignment='center',
+                                                 fontsize=8, verticalalignment='center',
                                                 horizontalalignment='center', fontfamily='monospace')
         
         plt.tight_layout()
@@ -196,7 +208,7 @@ class TrainingDashboard:
         
         epochs = list(self.epochs)
         
-        # Calculate x-axis limits based on window_size (PRESERVE EXISTING LOGIC)
+        # Calculate x-axis limits based on window_size
         if self.window_size is None:
             # Show all data points from epoch 1 to n
             x_min = min(epochs)
@@ -209,9 +221,13 @@ class TrainingDashboard:
         # Update lifetime plot
         self.line_lifetime.set_data(epochs, list(self.lifetimes))
         self.ax_lifetime.set_xlim(x_min, x_max)
-        max_lifetime = max(self.lifetimes) if self.lifetimes else 350
-        self.ax_lifetime.set_ylim(0, max_lifetime * 1.15)
         
+         # Dynamic ylim based on max lifetime and upper benchmark + offset ---
+        max_lifetime = max(self.lifetimes) if self.lifetimes else 0
+        no_of_cycles = np.ceil(max_lifetime / self.frames_per_cycle)
+        upper_benchmark = no_of_cycles * self.frames_per_cycle + 5
+        self.ax_lifetime.set_ylim(0, upper_benchmark)
+
         # Update discriminator scores - reuse lines instead of clearing
         self.ax_disc.set_xlim(x_min, x_max)
         
@@ -299,13 +315,17 @@ class TrainingDashboard:
         # Calculate health metrics
         health_status = []
         
-        # Lifetime health
-        if latest_lifetime < 100:
+        # Lifetime health - UPDATED with frames_per_cycle thresholds
+        if latest_lifetime < self.frames_per_cycle / 4:
             lifetime_status = "CRITICAL"
-        elif latest_lifetime < 200:
+        if latest_lifetime < self.frames_per_cycle / 2:
             lifetime_status = "WARNING"
+        elif latest_lifetime < self.frames_per_cycle:
+            lifetime_status = "PROGRESS"
+        elif latest_lifetime < self.frames_per_cycle * 2:
+            lifetime_status = "OK ❤"
         else:
-            lifetime_status = "OK"
+            lifetime_status = "SWEET"
         health_status.append(f"Lifetime: {latest_lifetime:.1f} [{lifetime_status}]")
         
         # Discriminator health
@@ -317,10 +337,14 @@ class TrainingDashboard:
                 
                 if gap > 0.5:
                     disc_status = "CRITICAL"
-                elif gap > 0.2:
+                elif gap > 0.3:
                     disc_status = "WARNING"
+                elif gap > 0.25:
+                    disc_status = "OK ✗"
+                elif gap > 0.2:
+                    disc_status = "OK ✓"
                 else:
-                    disc_status = "OK"
+                    disc_status = "SWEET"
                 health_status.append(f"Disc {name}: gap={gap:.3f} [{disc_status}]")
         
         # Value loss health
@@ -343,11 +367,11 @@ class TrainingDashboard:
         
         # Overall assessment
         if any("CRITICAL" in s for s in health_status):
-            overall = "CRITICAL \n Check Physics / Actuator"
+            overall = "CRITICAL\nCheck Physics / Actuator"
         elif any("WARNING" in s for s in health_status):
-            overall = "WARNING \n Monitor Carefully!"
+            overall = "WARNING\nMonitor Carefully!"
         else:
-            overall = "HEALTHY \n Good Training Progress"
+            overall = "HEALTHY\nGood Training Progress"
         
         text = f"Epoch: {latest_epoch}\n"
         text += f"Overall: {overall}\n"
@@ -360,20 +384,60 @@ class TrainingDashboard:
         """Run the dashboard"""
         print(f"Monitoring: {self.csv_path} (Press Ctrl+C to exit)")
         
-        # Optimized: increased interval and enabled blitting for smoother performance
-        ani = FuncAnimation(self.fig, self.update_plots, interval=3000, blit=False, cache_frame_data=False)
+        # Optimized: increased interval(ms) and enabled blitting for smoother performance
+        ani = FuncAnimation(self.fig, self.update_plots, interval=2000, blit=False, cache_frame_data=False)
         plt.show()
+
+
+def resolve_csv_path(path):
+    """
+    Resolve CSV path - handles both direct file path and folder path
+    Args:
+        path: Path to CSV file OR folder containing training_metrics.csv
+    Returns:
+        Resolved path to training_metrics.csv
+    """
+    if os.path.isfile(path):
+        # Direct file path provided
+        if path.endswith('.csv'):
+            return path
+        else:
+            print(f"Warning: {path} is a file but not a .csv file")
+            return path
+    elif os.path.isdir(path):
+        # Folder path provided - append training_metrics.csv
+        csv_path = os.path.join(path, "training_metrics.csv")
+        if os.path.exists(csv_path):
+            return csv_path
+        else:
+            print(f"Warning: training_metrics.csv not found in {path}")
+            return csv_path
+    else:
+        # Path doesn't exist yet - assume it will be created
+        if path.endswith('.csv'):
+            return path
+        else:
+            return os.path.join(path, "training_metrics.csv")
+
 
 def main():
     import argparse
     parser = argparse.ArgumentParser(description='Training Dashboard for CompositeMotion')
-    parser.add_argument('csv_path', type=str, help='Path to training_metrics.csv')
-    parser.add_argument('--window', type=int, default=None, help='Number of epochs to display (None for all)')
-
+    parser.add_argument('path', type=str, help='Path to training_metrics.csv OR folder containing it')
+    parser.add_argument('-w', type=int, default=None, help='Number of epochs to display (None for all)')
+    parser.add_argument('-fpc', type=int, default=30, 
+                       help='Number of Frames-Per-Cycle for lifetime benchmarks (default: 30)')
+    parser.add_argument('-cpe', type=int, default=1,
+                       help='Number of Cycles-Per-Episode for lifetime benchmarks (default: 1)')
     args = parser.parse_args()
 
-    dashboard = TrainingDashboard(args.csv_path, window_size=args.window)
+    # Resolve CSV path (handles both file and folder paths)
+    csv_path = resolve_csv_path(args.path)
+    
+    dashboard = TrainingDashboard(csv_path, window_size=args.w,
+            frames_per_cycle=args.fpc, cycles_per_episode=args.cpe)
     dashboard.run()
+
 
 if __name__ == '__main__':
     main()

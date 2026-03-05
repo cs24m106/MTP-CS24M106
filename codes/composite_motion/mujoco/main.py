@@ -70,6 +70,7 @@ TRAINING_PARAMS = dict(
     horizon = 16,           # default = [each PPO epoch (one buffer fill) takes 8 env steps] --> longer rollouts give much better GAE advantage estimates
     num_envs = 16,          # 32*8 = 256 --> single batch produced
     simulation_speed = 120, # physics simulation running at 120 hz as per paper
+    max_cycles = 5,         # sets hard reset episode length = max_cycles * max_motion_len * avg_fps
     batch_size = 256,
     opt_epochs = 5,
     actor_lr = 5e-6,
@@ -88,9 +89,8 @@ TRAINING_PARAMS = dict(
     save_interval = 500,
     terminate_reward = -1,  # default = -1, update in config file
     # --- (NEW) Phase Input: Phase-conditioned observations ---
-    # Set use_phase_obs=True when motion is looped for better results.
-    use_phase_obs = False,
-    # phase_period --> gait cycle, best to calc from ref-motion
+    # Set True when motion is looped for better results. phase_period --> gait cycle, best to calc from ref-motion
+    loop_phase_obs = False,
     # --- (NEW) Symmetry Regularization: Bilateral symmetry loss ---
     # Set sym_loss_coeff > 0 to enable. Recommended start: 0.005
     sym_loss_coeff = 0.0,
@@ -170,6 +170,33 @@ def get_ckpt_dir_and_weights_file(ckpt_path, config_path):
     os.makedirs(ckpt_dir, exist_ok=True)
     return ckpt_dir, weights_file
 
+def get_param_dict(obj):
+    def is_parsable(val):
+        # Allow only int, float, str, bool, None, or containers of these
+        primitive = (int, float, str, bool)
+        if isinstance(val, primitive):
+            return True
+        elif isinstance(val, (list, tuple)):
+            return all(is_parsable(x) for x in val)
+        elif isinstance(val, dict):
+            return all(is_parsable(k) and is_parsable(v) for k, v in val.items())
+        else:
+            return False
+
+    # Write all environment class parameters
+    params = {}
+    for attr in dir(obj):
+        if not callable(getattr(obj, attr)) and '__' not in attr:
+            value = getattr(obj, attr)
+            # Exclude torch.Tensor and np.ndarray
+            if isinstance(value, (torch.Tensor, np.ndarray)): continue
+            # Add all other primitives that json parsable
+            if value == None or is_parsable(value):
+                #print(attr, type(value))
+                params[attr] = value
+    
+    #print(obj.__dict__.keys())
+    return params
 
 if __name__ == "__main__":
     # Load config
@@ -228,7 +255,7 @@ if __name__ == "__main__":
     )
     
     if settings.test:
-        env.episode_length = 500000
+        env.max_cycles *= 2 # double max_cycles for testing
 
     value_dim = len(env.discriminators) + env.rew_dim
     model = ACModel(env.state_dim, env.act_dim, env.goal_dim, value_dim)
@@ -253,7 +280,13 @@ if __name__ == "__main__":
         import shutil
         from datetime import datetime
         #shutil.copy(settings.config, settings.ckpt) # uncomment to copy config onto checkpoints folder for ease of access
+
+        init_epoch = load_latest_checkpoint(model, settings.ckpt)
+        TRAINING_PARAMS["init_epoch"] = init_epoch # additing to editable dict just for saving purposes
+        env_params = get_param_dict(env) # keep track env setup as well
         with open(os.path.join(settings.ckpt, "cmds.txt"), "a") as f: # keep track of cmds
             f.write(f"{datetime.now()} \"{" ".join(sys.argv)}\"\n")
-            f.write(f"Training Params: {TRAINING_PARAMS}\n\n")
-        train(env, model, settings.ckpt, training_params, init_epoch = load_latest_checkpoint(model, settings.ckpt))
+            f.write(f"Training Params: {TRAINING_PARAMS}\n")
+            f.write(f"Environment Params: {env_params}\n\n")
+
+        train(env, model, settings.ckpt, training_params, init_epoch)

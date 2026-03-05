@@ -59,7 +59,7 @@ class MujocoEnv(gym.Env):
         self.step_time = 1.0 / self.fps
         self.substeps = substeps
         self.control_mode = control_mode
-        self.episode_length = episode_length
+        self.episode_length = episode_length    # best not to be set by training params (max_cycles overwrites it)
         self.device = torch.device(f"cuda:{compute_device}" if torch.cuda.is_available() and compute_device >= 0 else "cpu")
         self.n_envs = n_envs
         self.render_mode = render_mode

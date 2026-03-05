@@ -158,23 +158,35 @@ class MotionViewer:
             self.generate_preview(i, output_path)
 
 
-def view_motions_before_training(config_file: str, output_dir: str = "motion_previews", character_model_override: str = None):
+def render_motions(file: str, type: str, output_dir: str = "motion_previews", character_model_override: str = None):
     """
-    Preview motions specified in a config file before training
-    
+    Preview motions specified in a config file or directly from motion data file
     Args:
-        config_file: Path to training config file
+        file: Path to config file or motion data file
+        type: Type of file - 'config' or 'data'
         output_dir: Directory to save preview videos
+        character_model_override: Optional override for character model path
     """
     import importlib.util
     
-    # Load config
-    spec = importlib.util.spec_from_file_location("config", config_file)
-    config = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(config)
-    
-    # Get motion file
-    motion_file = config.env_params.get("motion_file")
+    # Determine motion_file and character_model based on type
+    if type == "config":
+        # Load config
+        spec = importlib.util.spec_from_file_location("config", file)
+        config = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(config)
+        # Get motion file
+        motion_file = config.env_params.get("motion_file")
+        # Show discriminator info (config type only)
+        show_discriminators = hasattr(config, "discriminators")
+        discriminators_config = config.discriminators if show_discriminators else None
+
+    elif type == "data":
+        # Direct motion file path provided
+        motion_file = file
+        show_discriminators = False
+        discriminators_config = None
+        
     character_model = config.env_params.get("character_model", "assets/humanoid.xml")
     if character_model_override:
         character_model = character_model_override
@@ -182,7 +194,7 @@ def view_motions_before_training(config_file: str, output_dir: str = "motion_pre
     print(f"Character Model: {character_model}")
 
     if not motion_file:
-        print("No motion file specified in config")
+        print("No motion file specified!")
         return
     
     # Create viewer
@@ -196,11 +208,11 @@ def view_motions_before_training(config_file: str, output_dir: str = "motion_pre
     viewer.preview_all_motions(output_dir)
     
     # Show discriminator info
-    if hasattr(config, "discriminators"):
+    if show_discriminators:
         print(f"\n{'='*60}")
         print("Discriminator Configuration:")
         print(f"{'='*60}")
-        for name, disc in config.discriminators.items():
+        for name, disc in discriminators_config.items():
             print(f"\n{name}:")
             if "key_links" in disc:
                 print(f"  Key Links: {disc['key_links']}")
@@ -213,9 +225,10 @@ def view_motions_before_training(config_file: str, output_dir: str = "motion_pre
 
 if __name__ == "__main__":
     import argparse
-    
     parser = argparse.ArgumentParser(description="View reference motions")
-    parser.add_argument("config", type=str, help="Config file or motion file")
+    parser.add_argument("file", type=str, help="Path to config file or motion data file")
+    parser.add_argument("-t", "--type", type=str, choices=["config", "data"], default="config",
+                       help="Type of file: 'config' (training config) or 'data' (motion file directly)")
     parser.add_argument("--output", type=str, default="assets/motion_previews", 
                        help="Output directory for previews")
     parser.add_argument("--model", type=str, default=None,
@@ -223,4 +236,4 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    view_motions_before_training(args.config, args.output, args.model)
+    render_motions(args.file, args.type, args.output, args.model)

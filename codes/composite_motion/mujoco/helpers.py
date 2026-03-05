@@ -58,9 +58,9 @@ def check_exit(env):
     return False
 
 # Start dashboard in a separate process
-def dashboard_worker(csv_path, window_size=None):
+def dashboard_worker(csv_path, steps_per_cycle, max_cycles, window_size=None):
     #time.sleep(5) # to start delayed
-    dash = TrainingDashboard(csv_path, window_size)
+    dash = TrainingDashboard(csv_path, window_size, steps_per_cycle, max_cycles)
     dash.run()
 #---
 
@@ -208,7 +208,7 @@ def train(env, model, ckpt_dir, training_params, init_epoch=0):
                 writer.writeheader()
 
         # live dashboard to view training metrics on last save_interval*2 window
-        dashboard_proc = multiprocessing.Process(target=dashboard_worker, args=(csv_log_path, training_params.save_interval *2))
+        dashboard_proc = multiprocessing.Process(target=dashboard_worker, args=(csv_log_path, env.steps_per_cycle, env.max_cycles, training_params.save_interval *2))
         dashboard_proc.start()
     else:
         logger = None

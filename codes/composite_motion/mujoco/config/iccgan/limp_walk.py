@@ -8,7 +8,7 @@ training_params = dict(
     max_epochs = 5000,
     save_interval = 250,
     terminate_reward = -1,
-    use_phase_obs = True,
+    loop_phase_obs = True,
 )
 
 discriminators = {

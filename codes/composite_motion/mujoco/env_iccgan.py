@@ -42,8 +42,10 @@ class ICCGANHumanoid(MujocoEnv):
         self.term_height = kwargs.get("term_height", self.TERMINATION_HEIGHT_THRESHOLD)
         self.grace_steps  = kwargs.get("grace_steps", self.TERMINATION_GRACE_STEPS)       # no.of consecutive frames required
         # Phase-conditioned observations
-        self.use_phase_obs = kwargs.pop("use_phase_obs", False)
-        self.phase_period  = float(kwargs.pop("phase_period", 1.0))
+        self.loop_phase_obs = kwargs.pop("loop_phase_obs", False)
+        self.phase_period  = float(kwargs.pop("phase_period", 1.0)) # best not to be set by training params
+        # Cycle motion if termination not triggered & to set episode length based on how many motion cycles before hard reset.
+        self.max_cycles  = int(kwargs.pop("max_cycles", 5))
         
         # initialize max_ob_horizon first itself, so base class can setup_state_spaces() correctly
         self.max_ob_horizon = self.ob_horizon + 1
@@ -157,7 +159,7 @@ class ICCGANHumanoid(MujocoEnv):
             self.reward_weights[:, -self.rew_dim:] = reward_weights
         
         self.info["ob_seq_lens"] = torch.zeros_like(self.lifetime)  # dummy result
-        self.goal_dim = self.GOAL_DIM + (2 if self.use_phase_obs else 0) # phase encoding adds 2 dims to the goal slice (sin/cos of phase)
+        self.goal_dim = self.GOAL_DIM + (2 if self.loop_phase_obs else 0) # phase encoding adds 2 dims to the goal slice (sin/cos of phase)
         self.state_dim = (self.ob_dim - self.goal_dim) // self.ob_horizon
         
         if self.discriminators:
@@ -173,12 +175,21 @@ class ICCGANHumanoid(MujocoEnv):
         # Load reference motion
         self.build_motion_lib(motion_file)
         if "phase_period" not in kwargs and self.ref_motion.period > 0: # overwrite if not passed as training args
-            print(f"Ref-Motion :: Phase Input overwrites phase_period: {self.phase_period} -> {self.ref_motion.period}\n")
-            self.phase_period = self.ref_motion.period
-            
+            #print(f"Ref-Motion :: Phase Input overwrites phase_period: {self.phase_period} -> {self.ref_motion.period} (max clip len in secs)\n")
+            self.phase_period = self.ref_motion.period # sets max motion len from ref-motion
+        
+        # longest clip length converted to control steps.
+        self.steps_per_cycle = max(1 * self.fps, round(self.phase_period * self.fps)) # (keep min range for 1s i.e. 30 steps for 30 fps motion)
+        self.episode_length = self.max_cycles * self.steps_per_cycle
+        print("\n[ICCGAN-Humanoid Init] Update Episode params:")
+        print(f"  Motion cycle: {self.phase_period:.3f}s (max) = {self.steps_per_cycle} steps (aggregate).")
+        print(f"  Max Episode Length = {self.steps_per_cycle} x {self.max_cycles} = {self.episode_length} steps.\n")
+        
         self.sampling_workers = []
         self.real_samples = []
-    
+
+# ---------------------------------------------------------------------------------------------
+       
     def build_motion_lib(self, motion_file):
         """Build reference motion library"""
         self.ref_motion = ReferenceMotion(
@@ -188,35 +199,10 @@ class ICCGANHumanoid(MujocoEnv):
         )
         # @overwrite prev calc in base class for refernce motion data
         if self.ref_motion.fps > 0: 
-            print(f"Build Ref-Motion overwrites fps: {self.fps} -> {self.ref_motion.fps}")
-            self.fps = self.ref_motion.fps
+            print(f"Build Ref-Motion overwrites fps: {self.fps} -> {self.ref_motion.fps}") 
+            self.fps = self.ref_motion.fps # sets avg fps from ref-motion
             self.frameskip = int(self.run_speed/self.fps)
             self.step_time = 1.0 / self.fps
-
-    def reset_envs(self, env_ids):  # overwrite for extra handling
-        super().reset_envs(env_ids)          # calls init_state → sets env_motion_times
-        self.state_hist[:, env_ids] = 0.0
-        self.terminate_counter[env_ids] = 0 
-        # Phase Input: seed phase from the motion time sampled in init_state
-        if self.use_phase_obs:
-            self.env_phase[env_ids] = (
-                self.env_motion_times[env_ids] % self.phase_period
-            ) / self.phase_period
-
-    def reset_done(self):
-        """Reset done environments and return observations with info"""
-        obs, info = super().reset_done()
-        info["ob_seq_lens"] = self.ob_seq_lens
-        info["reward_weights"] = self.reward_weights
-        return obs, info
-    
-    def step(self, actions):
-        """Step environment and update discriminator observations"""
-        obs, rews, terminated, truncated, info = super().step(actions)
-        if self.discriminators and self.training:
-            info["disc_obs"] = self.observe_disc(self.state_hist)
-            info["disc_obs_expert"] = self.fetch_real_samples()
-        return obs, rews, terminated, truncated, info
     
     def create_tensors(self):
         """Create tensors with character-specific info"""
@@ -248,7 +234,7 @@ class ICCGANHumanoid(MujocoEnv):
         self.terminate_counter = torch.zeros((self.n_envs,), dtype=torch.int32, device=self.device)
 
         # Phase-conditioned observation tensors
-        if self.use_phase_obs:
+        if self.loop_phase_obs:
             # env_phase ∈ [0, 1): normalised position within one motion cycle
             self.env_phase = torch.zeros((self.n_envs,), dtype=torch.float32, device=self.device)
             # env_motion_times: start time sampled from ref motion, used to seed phase on reset
@@ -294,6 +280,47 @@ class ICCGANHumanoid(MujocoEnv):
         self.goal_timer = torch.zeros((self.n_envs,), dtype=torch.int32, device=self.device) \
             if self.enable_goal_timer else None
     
+# ---------------------------------------------------------------------------------------------
+
+    def reset_envs(self, env_ids):  # overwrite for extra handling
+        super().reset_envs(env_ids)          # calls init_state → sets env_motion_times
+        self.state_hist[:, env_ids] = 0.0
+        self.terminate_counter[env_ids] = 0 
+        # Phase Input: seed phase from the motion time sampled in init_state
+        if self.loop_phase_obs:
+            self.env_phase[env_ids] = (
+                self.env_motion_times[env_ids] % self.phase_period
+            ) / self.phase_period
+
+    def reset_done(self):
+        """Reset done environments and return observations with info"""
+        obs, info = super().reset_done()
+        info["ob_seq_lens"] = self.ob_seq_lens
+        info["reward_weights"] = self.reward_weights
+        return obs, info
+    
+    def _cycle_reset(self, env_ids):
+        """Soft cycle reset: preserve all physics state, only clear GRU history.
+
+        Called when an env completes one full motion cycle without falling.
+        Joint positions, velocities, root pose and root velocity are intentionally
+        kept as-is so physics continues seamlessly into the next cycle.
+        We only clear state_hist so the GRU doesn't see stale cross-cycle frames,
+        and reset lightweight counters that track within-cycle state.
+
+        No need teleport Root world-XY back to origin: the discriminator's
+        observe_iccgan_safe() already works in a root-relative frame (horizontal
+        origin zeroed, only heading used), so absolute XY drift is invisible to
+        imitation loss and harmless for physics stability.
+        """
+        # Clear GRU history — ob_seq_lens (= lifetime % motion_ep_len + 1 = 1 at cycle
+        # start) already tells the GRU to read only the freshest slot, so this is safe.
+        self.state_hist[:, env_ids] = 0.0
+        # Reset per-cycle counters
+        self.terminate_counter[env_ids] = 0
+        if self.loop_phase_obs:
+            self.env_phase[env_ids] = 0.0
+
     def init_state(self, env_ids):
         """Initialize state from reference motion"""
         motion_ids, motion_times = self.ref_motion.sample(len(env_ids))
@@ -305,20 +332,78 @@ class ICCGANHumanoid(MujocoEnv):
             ref_link_tensor[:, :, 2] += ground_height.unsqueeze(1)
         
         # Phase Input: store sampled motion times so reset_envs can seed phase from them
-        if self.use_phase_obs:
+        if self.loop_phase_obs:
             self.env_motion_times[env_ids] = torch.from_numpy(
                 np.array(motion_times, dtype=np.float32)
             ).to(self.device)
         
         return ref_link_tensor, ref_joint_tensor
     
+# ---------------------------------------------------------------------------------------------
+        
+    def fetch_real_samples(self):
+        """Fetch real samples from reference motion"""
+        if not self.real_samples:
+            # Generate samples directly without multiprocessing for simplicity
+            obs_list = []
+            for _ in range(128):
+                dt = self.step_time
+                ob_horizon = max(disc.ob_horizon for disc in self.discriminators.values())
+                
+                motion_ids, motion_times0 = self.ref_motion.sample(self.n_envs, truncate_time=dt*(ob_horizon-1))
+                motion_ids = np.tile(motion_ids, ob_horizon)
+                motion_times = np.concatenate([motion_times0 + dt*i for i in range(ob_horizon)])
+                
+                link_tensor = self.ref_motion.state(motion_ids, motion_times, with_joint_tensor=False)
+                samples = link_tensor.view(ob_horizon, self.n_envs, -1)
+                
+                # Create discriminator observations
+                disc_obs = {}
+                for name, disc in self.discriminators.items():
+                    ob = observe_iccgan_safe(samples[-disc.ob_horizon:], None, disc.key_links, disc.parent_link,
+                        include_velocity=False, local_pos=disc.local_pos)
+                    disc_obs[name] = ob.cpu()
+                
+                obs_list.append(disc_obs)
+            
+            self.real_samples = obs_list
+        
+        return self.real_samples.pop()
+    
+    def step(self, actions):
+        """Step environment and update discriminator observations"""
+        obs, rews, terminated, truncated, info = super().step(actions)
+        if self.discriminators and self.training:
+            info["disc_obs"] = self.observe_disc(self.state_hist)
+            info["disc_obs_expert"] = self.fetch_real_samples()
+
+        # --- Motion cycle detection ---
+        # When an env finishes one full motion clip (lifetime is a nonzero multiple of motion_ep_len) 
+        # without having already been terminated/truncated, perform a soft cycle reset so the motion loops seamlessly.
+        # self.obs and self.done are already set by super().step(); we must NOT touch
+        # self.done here — only clear history for envs that are still alive.
+        at_cycle_end = (self.lifetime % self.steps_per_cycle == 0) & (self.lifetime > 0)
+        cycle_env_ids = torch.nonzero(at_cycle_end & ~self.done).view(-1) # done or not --> set by super by checking termination conditions
+        if len(cycle_env_ids) > 0:
+            self._cycle_reset(cycle_env_ids)
+        if self.verbose:
+            print(f"\n[STEP-CYCLE] {len(cycle_env_ids)} envs completed a motion cycle at lifetime={self.lifetime[cycle_env_ids].cpu().numpy()}\n")
+
+        return obs, rews, terminated, truncated, info
+    
     def ground_height(self, p, env_ids=None):
         """Get ground height at position"""
         return None
     
+# ---------------------------------------------------------------------------------------------
+    
     def observe(self, env_ids=None):
         """Observe with ICCGAN observation function"""
-        self.ob_seq_lens = torch.clamp(self.lifetime + 1, max=self.ob_horizon)
+        if hasattr(self,'steps_per_cycle'): # handle case when super init calls before param is assigned
+            lifetime_in_cycle = self.lifetime % self.steps_per_cycle
+        else:
+            lifetime_in_cycle = self.lifetime
+        self.ob_seq_lens = torch.clamp(lifetime_in_cycle + 1, max=self.ob_horizon)
         n_envs = self.n_envs
         
         if env_ids is None or len(env_ids) == n_envs:
@@ -327,7 +412,7 @@ class ICCGANHumanoid(MujocoEnv):
             env_ids = None
             # Phase Input: advance phase for ALL envs each simulation step (full-env call only)
             # Subset calls (reset envs) already have correct phase set in reset_envs()
-            if self.use_phase_obs:
+            if self.loop_phase_obs:
                 self.env_phase = (self.env_phase + self.step_time / self.phase_period) % 1.0
         else:
             n_envs = len(env_ids)
@@ -350,7 +435,7 @@ class ICCGANHumanoid(MujocoEnv):
                 ground_height=ground_height
             ).flatten(start_dim=1)
             # Phase Input: append (sin, cos) phase encoding — bounded [-1,1], no normalisation needed
-            if self.use_phase_obs:
+            if self.loop_phase_obs:
                 phase_enc = torch.stack([
                     torch.sin(2.0 * np.pi * self.env_phase),
                     torch.cos(2.0 * np.pi * self.env_phase),
@@ -364,7 +449,7 @@ class ICCGANHumanoid(MujocoEnv):
                 ground_height=ground_height
             ).flatten(start_dim=1)
             # Phase Input: append phase encoding for subset
-            if self.use_phase_obs:
+            if self.loop_phase_obs:
                 phase_enc = torch.stack([
                     torch.sin(2.0 * np.pi * self.env_phase[env_ids]),
                     torch.cos(2.0 * np.pi * self.env_phase[env_ids]),
@@ -417,36 +502,7 @@ class ICCGANHumanoid(MujocoEnv):
                 )
                 seq_len_[disc_name] = seq_len
             return res, seq_len_
-    
-    def fetch_real_samples(self):
-        """Fetch real samples from reference motion"""
-        if not self.real_samples:
-            # Generate samples directly without multiprocessing for simplicity
-            obs_list = []
-            for _ in range(128):
-                dt = self.step_time
-                ob_horizon = max(disc.ob_horizon for disc in self.discriminators.values())
-                
-                motion_ids, motion_times0 = self.ref_motion.sample(self.n_envs, truncate_time=dt*(ob_horizon-1))
-                motion_ids = np.tile(motion_ids, ob_horizon)
-                motion_times = np.concatenate([motion_times0 + dt*i for i in range(ob_horizon)])
-                
-                link_tensor = self.ref_motion.state(motion_ids, motion_times, with_joint_tensor=False)
-                samples = link_tensor.view(ob_horizon, self.n_envs, -1)
-                
-                # Create discriminator observations
-                disc_obs = {}
-                for name, disc in self.discriminators.items():
-                    ob = observe_iccgan_safe(samples[-disc.ob_horizon:], None, disc.key_links, disc.parent_link,
-                        include_velocity=False, local_pos=disc.local_pos)
-                    disc_obs[name] = ob.cpu()
-                
-                obs_list.append(disc_obs)
-            
-            self.real_samples = obs_list
-        
-        return self.real_samples.pop()
-    
+
     def termination_check(self):
         """Check termination conditions"""
         if self.contactable_links is None:
