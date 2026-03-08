@@ -488,7 +488,7 @@ class ICCGANHumanoid(Env):
         if contactable_links is None:
             self.contactable_links = None
         else:
-            contact = np.full((n_envs, n_links), 0.15)
+            contact = np.full((n_envs, n_links), 0.15) # default terminate height <= 0.15 m
             if type(contactable_links) != dict:
                 contactable_links = {link: -10000 for link in contactable_links}
             for link, h in contactable_links.items():

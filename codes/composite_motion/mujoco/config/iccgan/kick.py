@@ -1,13 +1,11 @@
 env_cls = "ICCGANHumanoid"
 env_params = dict(
-    episode_length = 300,
     motion_file = "assets/motions/iccgan/kick.json"
 )
 
 training_params = dict(
-    max_epochs = 5000,
-    save_interval = 250,
-    terminate_reward = -1
+    max_epochs = 10000,
+    save_interval = 500,
 )
 
 discriminators = {

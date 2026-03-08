@@ -180,14 +180,15 @@ def render_motions(file: str, type: str, output_dir: str = "motion_previews", ch
         # Show discriminator info (config type only)
         show_discriminators = hasattr(config, "discriminators")
         discriminators_config = config.discriminators if show_discriminators else None
+        character_model = config.env_params.get("character_model", "assets/humanoid.xml")
 
     elif type == "data":
         # Direct motion file path provided
         motion_file = file
         show_discriminators = False
         discriminators_config = None
+        character_model = "assets/humanoid.xml"
         
-    character_model = config.env_params.get("character_model", "assets/humanoid.xml")
     if character_model_override:
         character_model = character_model_override
     

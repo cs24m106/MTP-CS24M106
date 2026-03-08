@@ -66,37 +66,39 @@ torch.set_printoptions(linewidth=120,  precision=6)  # fixed-point, no exponent,
 np.set_printoptions(linewidth=120, suppress=True, precision=6, sign=' ', floatmode='fixed') 
 #os.environ['CUDA_LAUNCH_BLOCKING'] = '1' # use for debuging without 
 
-TRAINING_PARAMS = dict(
-    horizon = 16,           # default = [each PPO epoch (one buffer fill) takes 8 env steps] --> longer rollouts give much better GAE advantage estimates
-    num_envs = 16,          # 32*8 = 256 --> single batch produced
-    simulation_speed = 120, # physics simulation running at 120 hz as per paper
-    max_cycles = 5,         # sets hard reset episode length = max_cycles * max_motion_len * avg_fps
-    batch_size = 256,
+TRAINING_PARAMS = dict(     # env - represent params to set to environment (make sure to verify if applied in cmds.txt)
+    horizon = 8,           # default = 8 [each PPO epoch (one buffer fill) takes 8 env steps] --> longer rollouts give much better GAE advantage estimates
+    num_envs = 32,          # default = 512 (512*8 = 256*16 --> 16 batches produced) -- heavy 1ep = 20s
+    simulation_speed = 120, # env-set: physics simulation running at 120 hz as per paper
+    batch_size = 256,       # default = 256
     opt_epochs = 5,
     actor_lr = 5e-6,
     critic_lr = 1e-4,
     gamma = 0.95,
     lambda_ = 0.95,
-    disc_lr = 5e-6,         # default = 1e-5, slow it when incresing horizon, to give policy time to respond
+    disc_lr = 1e-5,         # default = 1e-5, slow it when incresing horizon, to give policy time to respond
     log_interval = 10,
     control_mode="position",
-    # update xml for differ model simulations, but make sure no.of body parts are same
-    character_model=os.path.join("assets", "humanoid_posctrl_v2.xml"),
-    term_height = 0.10,     # default = 0.15
-    grace_steps = 3,        # default <= 1
+    # env-set: update xml for differ model simulations, but make sure no.of body parts are same
+    character_model=os.path.join("assets", "humanoid_posctrl.xml"),
+    term_height = 0.15,     # default = 0.15 
+    grace_steps = 3,        # default <= 1 (only for testing, adding in training will disrupt learning behaviour)
 # ---- ---- ---- ---- ---- Best to update bottom params in config.py and top params here (for convienience) ---- ---- ---- ---- ----
     max_epochs = 10000,     # 10000 iterations / 8 per PPO epoch = 125 PPO epochs --> in each training loop
     save_interval = 500,
     terminate_reward = -1,  # default = -1, update in config file
-    # --- (NEW) Phase Input: Phase-conditioned observations ---
-    # Set True when motion is looped for better results. phase_period --> gait cycle, best to calc from ref-motion
-    loop_phase_obs = False,
     # --- (NEW) Symmetry Regularization: Bilateral symmetry loss ---
-    # Set sym_loss_coeff > 0 to enable. Recommended start: 0.005
-    sym_loss_coeff = 0.0,
+    sym_loss_coeff = 0.0,   # train-set: > 0 to enable. Recommended start: 0.005
 )
-
-
+'''
+# has been moved to config files resp
+ENV_PARAMS = dict(
+    # --- NOTE: set cycles count > 1 for training, only is motion is loopable seamlessly (test always runs in 2 times this value)
+    max_cycles = 1,         # env-set: hard reset episode length = max_cycles * max_motion_len * avg_fps.
+    # --- (NEW) Phase Input: Phase-conditioned observations ---
+    loop_phase_obs = False, # env-set: True when motion is looped for better results. phase_period --> gait cycle, best to calc from ref-motion
+)
+'''
 def safe_load_model(model, weights_file):
     print(f"Loading weights from {weights_file} ...")
     state = torch.load(weights_file, map_location=next(model.parameters()).device)
@@ -153,21 +155,34 @@ def get_ckpt_dir_and_weights_file(ckpt_path, config_path):
         if os.path.isfile(ckpt_path):
             ckpt_dir = os.path.dirname(ckpt_path)
             weights_file = ckpt_path
+            return ckpt_dir, weights_file
         else:
             ckpt_dir = ckpt_path
             if last_folder != config_base:
                 ckpt_dir = os.path.join(ckpt_dir, config_base)
-            weights_file = os.path.join(ckpt_dir, "ckpt")
+            
     else:
         if ("ckpt" in last_folder): # given path to file that doesnt exist
             ckpt_dir = os.path.dirname(ckpt_path)
             weights_file = ckpt_path
+            return ckpt_dir, weights_file
         else: # treat as directory and apply config_base logic
             ckpt_dir = ckpt_path
             if last_folder != config_base:
                 ckpt_dir = os.path.join(ckpt_dir, config_base)
-            weights_file = os.path.join(ckpt_dir, "ckpt")
+
+    # --- Added for my convention's convinience ---
+    grp_dir = os.path.dirname(ckpt_dir)
+    grp_dir += '-'
+    if env.loop_phase_obs:
+        grp_dir += 'l'
+    if training_params.sym_loss_coeff > 0.0:
+        grp_dir += 's'
+    grp_dir += f'-h{training_params.horizon}'
+    ckpt_dir = os.path.join(grp_dir, os.path.basename(ckpt_dir))
+    # --- remove if not needed ---
     os.makedirs(ckpt_dir, exist_ok=True)
+    weights_file = os.path.join(ckpt_dir, "ckpt")
     return ckpt_dir, weights_file
 
 def get_param_dict(obj):
@@ -186,12 +201,12 @@ def get_param_dict(obj):
     # Write all environment class parameters
     params = {}
     for attr in dir(obj):
-        if not callable(getattr(obj, attr)) and '__' not in attr:
+        if not callable(getattr(obj, attr)) and not attr.startswith('_'):
             value = getattr(obj, attr)
-            # Exclude torch.Tensor and np.ndarray
-            if isinstance(value, (torch.Tensor, np.ndarray)): continue
+            # Exclude torch.Tensor, np.ndarray, all-caps (default placeholder attributes)
+            if isinstance(value, (torch.Tensor, np.ndarray)) or attr.isupper(): continue
             # Add all other primitives that json parsable
-            if value == None or is_parsable(value):
+            if value is None or is_parsable(value):
                 #print(attr, type(value))
                 params[attr] = value
     
@@ -226,7 +241,7 @@ if __name__ == "__main__":
     if hasattr(config, "env_cls"):
         env_cls = getattr(env, config.env_cls)
     else:
-        env_cls = env.ICCGANHumanoidMujoco
+        env_cls = env.ICCGANHumanoid
     
         
     render_mode = None
@@ -238,19 +253,25 @@ if __name__ == "__main__":
     print(f"Env(render:{settings.render}-{render_mode}): {env_cls} Params:\n{config.env_params}\n")
 
     if settings.test:
-        num_envs = 1
+        num_envs = 1        # one env will be rendering realtime to view
+        grace_steps = training_params.grace_steps
     else:
         num_envs = training_params.num_envs
+        grace_steps = 1     # allowing grace steps in training is not ideal
 
     # Create environment
     env = env_cls(
         num_envs,
-        character_model=training_params.character_model,
-        discriminators=discriminators,
-        compute_device=settings.device,
-        render_mode=render_mode,
-        run_speed=training_params.simulation_speed,
+        character_model = training_params.character_model,
+        discriminators = discriminators,
+        compute_device = settings.device,
+        render_mode = render_mode,
+        run_speed = training_params.simulation_speed,
+        term_height = training_params.term_height,
+        grace_steps = grace_steps,
         verbose = settings.verbose,
+        #max_cycles = ENV_PARAMS.max_cycles,
+        #loop_phase_obs = ENV_PARAMS.loop_phase_obs,
         **config.env_params
     )
     
@@ -274,7 +295,7 @@ if __name__ == "__main__":
         if settings.ckpt is not None and os.path.exists(weights_file):
             load_success = safe_load_model(model, weights_file)
         if not load_success:
-            print(f"WARNING! Unable to Load model (using random weights) from path(exists?{os.path.exists(weights_file)}) : {settings.ckpt}\n")
+            print(f"WARNING! Unable to Load model (using random weights) from path(exists?{os.path.exists(weights_file)}) : {os.path.abspath(weights_file)}\n")
         test(env, model, settings.ckpt)
     else:
         import shutil

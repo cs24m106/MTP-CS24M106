@@ -13,11 +13,14 @@ from collections import deque
 
 class TrainingDashboard:
     """Real-time training monitoring dashboard"""
-    def __init__(self, csv_path, window_size=None, frames_per_cycle=30, cycles_per_episode=1):
+    
+    def __init__(self, csv_path, window_size=None, frames_per_cycle=30, cycles_per_episode=1, fig_name=None):
         self.csv_path = csv_path
         self.window_size = window_size
         self.frames_per_cycle = frames_per_cycle
         self.cycles_per_episode = cycles_per_episode
+        if fig_name == None:
+            fig_name = os.path.basename(os.path.dirname(csv_path))
         
         # Data buffers
         if self.window_size is None:
@@ -27,6 +30,7 @@ class TrainingDashboard:
             self.policy_losses = deque()
             self.value_losses = deque()
             self.reward_means = deque()
+            self.all_rewards = {}  # {reward_name: deque} for all reward columns
             
             # Discriminator data
             self.disc_scores_real = {}  # {name: deque}
@@ -39,6 +43,7 @@ class TrainingDashboard:
             self.policy_losses = deque(maxlen=window_size)
             self.value_losses = deque(maxlen=window_size)
             self.reward_means = deque(maxlen=window_size)
+            self.all_rewards = {}  # {reward_name: deque}
             
             # Discriminator data
             self.disc_scores_real = {}  # {name: deque}
@@ -46,8 +51,8 @@ class TrainingDashboard:
             self.disc_rewards = {}  # {name: deque}
         
         # Setup plot
-        self.fig, self.axes = plt.subplots(2, 3, figsize=(12, 6))
-        self.fig.suptitle('CompositeMotion Training Dashboard', fontsize=14, fontweight='bold')
+        self.fig, self.axes = plt.subplots(2, 3, figsize=(12, 6), num=fig_name)
+        self.fig.suptitle(f'{fig_name} Training Analysis', fontsize=14, fontweight='bold')
         
         # Initialize lines
         self._init_plots()
@@ -58,7 +63,11 @@ class TrainingDashboard:
         # Cache for disc lines to avoid recreation
         self.disc_lines = {}
         self.gap_lines = {}
+        self.reward_lines = {}
         
+        # Discriminator name mapping for clean legends
+        self.disc_name_map = {}
+    
     def _init_plots(self):
         """Initialize plot axes"""
         # Plot 1: Lifetime
@@ -68,15 +77,14 @@ class TrainingDashboard:
         self.ax_lifetime.set_ylabel('Steps')
         self.line_lifetime, = self.ax_lifetime.plot([], [], 'b-', linewidth=1.5, label='Lifetime')
         self.ax_lifetime.grid(True, alpha=0.2)
-
+        
         # Add benchmark lines for lifetime based on frames_per_cycle and cycles_per_episode
         self.benchmark_texts = []  # Store text objects to avoid recreation
         for i in range(self.cycles_per_episode + 1):
             benchmark_y = i * self.frames_per_cycle
-            line = self.ax_lifetime.axhline(y=benchmark_y, color='darkgray', linewidth=0.8,linestyle='--')
-            # Using get_yaxis_transform() keeps text anchored to right edge of plot area
+            line = self.ax_lifetime.axhline(y=benchmark_y, color='darkgray', linewidth=0.8, linestyle='--')
             txt = self.ax_lifetime.text(1.02, benchmark_y, f'cy[{i}]:{benchmark_y:3d}s', 
-                                        transform=self.ax_lifetime.get_yaxis_transform(),
+                                         transform=self.ax_lifetime.get_yaxis_transform(),
                                         fontsize=6, va='center', ha='left', alpha=0.7, color='magenta')
             self.benchmark_texts.append(txt)
         
@@ -85,7 +93,7 @@ class TrainingDashboard:
         self.ax_disc.set_title('Discriminator Scores')
         self.ax_disc.set_xlabel('Epoch')
         self.ax_disc.set_ylabel('Score')
-        # Scoer Baselines
+        # Score Baselines
         self.ax_disc.axhline(y=0, color='k', linewidth=.8, linestyle='-', alpha=0.3)
         self.ax_disc.axhline(y=0.2, color='g', linewidth=.8, linestyle='--', alpha=0.3, label='Target Real (>0.2)')
         self.ax_disc.axhline(y=-0.2, color='r', linewidth=.8, linestyle='--', alpha=0.3, label='Target Fake (<-0.2)')
@@ -96,12 +104,12 @@ class TrainingDashboard:
         self.disc_lines = {}
         self.gap_lines = {}
         
-        # Plot 3: Reward
+        # Plot 3: All Rewards
         self.ax_reward = self.axes[0, 2]
-        self.ax_reward.set_title('Mean Reward')
+        self.ax_reward.set_title('All Reward Metrics')
         self.ax_reward.set_xlabel('Epoch')
         self.ax_reward.set_ylabel('Reward')
-        self.line_reward, = self.ax_reward.plot([], [], 'g-', linewidth=1.5)
+        self.reward_lines = {}
         self.ax_reward.grid(True, alpha=0.3)
         
         # Plot 4: Losses
@@ -130,11 +138,20 @@ class TrainingDashboard:
         self.ax_health.set_title('Training Health')
         self.ax_health.axis('off')
         self.health_text = self.ax_health.text(0.5, 0.5, '', transform=self.ax_health.transAxes,
-                                                 fontsize=8, verticalalignment='center',
+                                                  fontsize=8, verticalalignment='center',
                                                 horizontalalignment='center', fontfamily='monospace')
         
         plt.tight_layout()
-
+    
+    def _parse_disc_name(self, col_name, prefix):
+        """Parse discriminator name from column header, handling special characters"""
+        if col_name.startswith(prefix):
+            name = col_name[len(prefix):]
+            # Clean up the name for display (replace / with -, remove extra underscores)
+            clean_name = name.replace('/', '-').replace('__', '_').strip('_')
+            return clean_name
+        return None
+    
     def read_new_data(self):
         """Read new data from CSV file"""
         if not os.path.exists(self.csv_path):
@@ -143,7 +160,7 @@ class TrainingDashboard:
         try:
             with open(self.csv_path, 'r') as f:
                 lines = f.readlines()
-                
+            
             if len(lines) <= self.last_line:
                 return False
             
@@ -151,22 +168,46 @@ class TrainingDashboard:
             if self.last_line == 0:
                 header = lines[0].strip().split(',')
                 self.disc_names = []
+                self.reward_columns = []
+                
                 for col in header:
+                    col = col.strip()
+                    # Discriminator columns
                     if col.startswith('score_real_'):
-                        name = col.replace('score_real_', '')
-                        self.disc_names.append(name)
+                        name = self._parse_disc_name(col, 'score_real_')
+                        if name:
+                            self.disc_names.append(name)
+                            self.disc_name_map[col] = name
+                            if self.window_size is None:
+                                self.disc_scores_real[name] = deque()
+                                self.disc_scores_fake[name] = deque()
+                                self.disc_rewards[name] = deque()
+                            else:
+                                self.disc_scores_real[name] = deque(maxlen=self.window_size)
+                                self.disc_scores_fake[name] = deque(maxlen=self.window_size)
+                                self.disc_rewards[name] = deque(maxlen=self.window_size)
+                    elif col.startswith('score_fake_'):
+                        name = self._parse_disc_name(col, 'score_fake_')
+                        if name and name not in self.disc_names:
+                            # Map fake column to existing name
+                            self.disc_name_map[col] = name
+                    elif col.startswith('disc_reward_'):
+                        name = self._parse_disc_name(col, 'disc_reward_')
+                        if name:
+                            self.disc_name_map[col] = name
+                    # All reward columns (containing 'reward')
+                    elif 'reward' in col.lower():
+                        self.reward_columns.append(col)
                         if self.window_size is None:
-                            self.disc_scores_real[name] = deque()
-                            self.disc_scores_fake[name] = deque()
-                            self.disc_rewards[name] = deque()
+                            self.all_rewards[col] = deque()
                         else:
-                            self.disc_scores_real[name] = deque(maxlen=self.window_size)
-                            self.disc_scores_fake[name] = deque(maxlen=self.window_size)
-                            self.disc_rewards[name] = deque(maxlen=self.window_size)
+                            self.all_rewards[col] = deque(maxlen=self.window_size)
+                
                 self.last_line = 1
             
             # Parse new rows
-            reader = csv.DictReader(lines[self.last_line:], fieldnames=lines[0].strip().split(','))
+            header_list = lines[0].strip().split(',')
+            reader = csv.DictReader(lines[self.last_line:], fieldnames=header_list)
             for row in reader:
                 try:
                     self.epochs.append(int(row['epoch']))
@@ -175,18 +216,29 @@ class TrainingDashboard:
                     self.value_losses.append(float(row['value_loss']))
                     self.reward_means.append(float(row['reward_mean']))
                     
+                    # All reward columns
+                    for col in self.reward_columns:
+                        if col in row and row[col]:
+                            self.all_rewards[col].append(float(row[col]))
+                    
                     # Discriminator data
                     for name in self.disc_names:
-                        real_key = f'score_real_{name}'
-                        fake_key = f'score_fake_{name}'
-                        reward_key = f'disc_reward_{name}'
+                        real_key = f'score_real_{name}'.replace('-', '/').replace('_', '__')
+                        fake_key = f'score_fake_{name}'.replace('-', '/').replace('_', '__')
+                        reward_key = f'disc_reward_{name}'.replace('-', '/').replace('_', '__')
                         
-                        if real_key in row and row[real_key]:
-                            self.disc_scores_real[name].append(float(row[real_key]))
-                        if fake_key in row and row[fake_key]:
-                            self.disc_scores_fake[name].append(float(row[fake_key]))
-                        if reward_key in row and row[reward_key]:
-                            self.disc_rewards[name].append(float(row[reward_key]))
+                        # Try to find matching columns in row
+                        for key in row.keys():
+                            key_stripped = key.strip()
+                            if key_stripped.startswith('score_real_') and self._parse_disc_name(key_stripped, 'score_real_') == name:
+                                if row[key_stripped]:
+                                    self.disc_scores_real[name].append(float(row[key_stripped]))
+                            elif key_stripped.startswith('score_fake_') and self._parse_disc_name(key_stripped, 'score_fake_') == name:
+                                if row[key_stripped]:
+                                    self.disc_scores_fake[name].append(float(row[key_stripped]))
+                            elif key_stripped.startswith('disc_reward_') and self._parse_disc_name(key_stripped, 'disc_reward_') == name:
+                                if row[key_stripped]:
+                                    self.disc_rewards[name].append(float(row[key_stripped]))
                     
                     self.last_line += 1
                 except (ValueError, KeyError) as e:
@@ -197,7 +249,43 @@ class TrainingDashboard:
         except Exception as e:
             print(f"Error reading CSV: {e}")
             return False
-
+    
+    def _get_recent_values(self, data_deque, use_avg=False):
+        """Get recent values - either last entry or average of last window_size/2 entries"""
+        if len(data_deque) == 0:
+            return 0
+        
+        if self.window_size is None or not use_avg:
+            return data_deque[-1]
+        else:
+            # Take last window_size/2 entries and average
+            n_samples = max(1, self.window_size // 2)
+            recent = list(data_deque)[-n_samples:]
+            return np.mean(recent)
+    
+    def _calculate_trend(self, data_deque, n_points=None):
+        """Calculate trend using linear regression on recent points"""
+        if len(data_deque) < 2:
+            return 0
+        
+        if self.window_size is None:
+            n_points = min(10, len(data_deque))
+        else:
+            n_points = min(self.window_size // 2, len(data_deque))
+        
+        if n_points < 2:
+            return 0
+        
+        recent = list(data_deque)[-n_points:]
+        x = np.arange(len(recent))
+        y = np.array(recent)
+        
+        # Simple linear regression (poly deg = 1)
+        if len(x) > 1:
+            slope = np.polyfit(x, y, 1)[0] # return m & c from  y = mx + c
+            return slope
+        return 0
+    
     def update_plots(self, frame):
         """Update all plots"""
         if not self.read_new_data():
@@ -222,12 +310,12 @@ class TrainingDashboard:
         self.line_lifetime.set_data(epochs, list(self.lifetimes))
         self.ax_lifetime.set_xlim(x_min, x_max)
         
-         # Dynamic ylim based on max lifetime and upper benchmark + offset ---
+        # Dynamic ylim based on max lifetime and upper benchmark + offset
         max_lifetime = max(self.lifetimes) if self.lifetimes else 0
         no_of_cycles = np.ceil(max_lifetime / self.frames_per_cycle)
         upper_benchmark = no_of_cycles * self.frames_per_cycle + 5
         self.ax_lifetime.set_ylim(0, upper_benchmark)
-
+        
         # Update discriminator scores - reuse lines instead of clearing
         self.ax_disc.set_xlim(x_min, x_max)
         
@@ -250,10 +338,12 @@ class TrainingDashboard:
                 min_score = min(min_score, min(real_scores), min(fake_scores))
                 max_score = max(max_score, max(real_scores), max(fake_scores))
                 
+                # Use clean name for legend
+                display_name = name.replace('_', ' ').title()
                 real_line, = self.ax_disc.plot(disc_epochs, real_scores, 'g-', 
-                                            linewidth=1.5, label=f'{name} (real)', alpha=0.7)
+                                            linewidth=1.5, label=f'{display_name} (real)', alpha=0.7)
                 fake_line, = self.ax_disc.plot(disc_epochs, fake_scores, 'r-', 
-                                            linewidth=1.5, label=f'{name} (fake)', alpha=0.7)
+                                            linewidth=1.5, label=f'{display_name} (fake)', alpha=0.7)
                 self.disc_lines[name] = [real_line, fake_line]
         
         self.ax_disc.set_ylim(min_score - 0.1, max_score + 0.1)
@@ -262,11 +352,43 @@ class TrainingDashboard:
         if self.disc_names:
             self.ax_disc.legend(loc='upper right', fontsize='small')
         
-        # Update reward plot
-        self.line_reward.set_data(epochs, list(self.reward_means))
+        # Update ALL reward plots
         self.ax_reward.set_xlim(x_min, x_max)
-        if len(self.reward_means) > 0:
-            self.ax_reward.set_ylim(min(self.reward_means) - 0.1, max(self.reward_means) + 0.1)
+        
+        # Clear existing reward lines
+        for line in self.reward_lines.values():
+            line.remove()
+        self.reward_lines.clear()
+        
+        # Color map for different reward lines
+        colors = plt.cm.tab10(np.linspace(0, 1, max(1, len(self.reward_columns))))
+        
+        for idx, col in enumerate(self.reward_columns):
+            if col in self.all_rewards and len(self.all_rewards[col]) > 0:
+                reward_data = list(self.all_rewards[col])
+                reward_epochs = epochs[-len(reward_data):]
+                
+                # Clean column name for legend
+                display_name = col.replace('reward_', '').replace('_', ' ').title()
+                
+                color = colors[idx % len(colors)]
+                line, = self.ax_reward.plot(reward_epochs, reward_data, '-', 
+                                           linewidth=1.2, label=display_name, 
+                                           color=color, alpha=0.8)
+                self.reward_lines[col] = line
+        
+        if len(self.reward_columns) > 0:
+            # Update y-axis based on all reward data
+            all_reward_values = []
+            for col in self.reward_columns:
+                if col in self.all_rewards and len(self.all_rewards[col]) > 0:
+                    all_reward_values.extend(self.all_rewards[col])
+            
+            if all_reward_values:
+                min_reward = min(all_reward_values)
+                max_reward = max(all_reward_values)
+                self.ax_reward.set_ylim(min_reward - 0.1, max_reward + 0.1)
+            self.ax_reward.legend(loc='upper right', fontsize='x-small')
         
         # Update loss plot
         self.line_policy_loss.set_data(epochs, list(self.policy_losses))
@@ -291,7 +413,8 @@ class TrainingDashboard:
                 gaps = [r - f for r, f in zip(real_scores, fake_scores)]
                 gap_epochs = epochs[-len(gaps):]
                 
-                gap_line, = self.ax_gap.plot(gap_epochs, gaps, linewidth=1.5, label=name)
+                display_name = name.replace('_', ' ').title()
+                gap_line, = self.ax_gap.plot(gap_epochs, gaps, linewidth=1.5, label=display_name)
                 self.gap_lines[name] = gap_line
         
         if self.disc_names:
@@ -301,16 +424,23 @@ class TrainingDashboard:
         self._update_health_text()
         
         self.fig.canvas.draw_idle()
-
+    
     def _update_health_text(self):
         """Update health status text"""
         if len(self.epochs) == 0:
             return
         
-        latest_epoch = self.epochs[-1]
-        latest_lifetime = self.lifetimes[-1]
-        latest_policy_loss = self.policy_losses[-1]
-        latest_value_loss = self.value_losses[-1]
+        # Use averaged values when window_size is set
+        use_avg = self.window_size is not None
+        
+        latest_epoch = self._get_recent_values(self.epochs, use_avg=False)
+        latest_lifetime = self._get_recent_values(self.lifetimes, use_avg)
+        latest_policy_loss = self._get_recent_values(self.policy_losses, use_avg)
+        latest_value_loss = self._get_recent_values(self.value_losses, use_avg)
+        latest_reward_mean = self._get_recent_values(self.reward_means, use_avg)
+        
+        # Calculate reward trend
+        reward_trend = self._calculate_trend(self.reward_means)
         
         # Calculate health metrics
         health_status = []
@@ -318,7 +448,7 @@ class TrainingDashboard:
         # Lifetime health - UPDATED with frames_per_cycle thresholds
         if latest_lifetime < self.frames_per_cycle / 4:
             lifetime_status = "CRITICAL"
-        if latest_lifetime < self.frames_per_cycle / 2:
+        elif latest_lifetime < self.frames_per_cycle / 2:
             lifetime_status = "WARNING"
         elif latest_lifetime < self.frames_per_cycle:
             lifetime_status = "PROGRESS"
@@ -328,11 +458,14 @@ class TrainingDashboard:
             lifetime_status = "SWEET"
         health_status.append(f"Lifetime: {latest_lifetime:.1f} [{lifetime_status}]")
         
+        # Reward Mean health - NEW with trend analysis
+        health_status.append(f"Reward: {latest_reward_mean:.3f} (trend={reward_trend:.4f}) {"[✓]" if reward_trend > 0 else "[✗]"}")
+        
         # Discriminator health
         for name in self.disc_names:
             if name in self.disc_scores_real and len(self.disc_scores_real[name]) > 0:
-                real = self.disc_scores_real[name][-1]
-                fake = self.disc_scores_fake[name][-1]
+                real = self._get_recent_values(self.disc_scores_real[name], use_avg)
+                fake = self._get_recent_values(self.disc_scores_fake[name], use_avg)
                 gap = real - fake
                 
                 if gap > 0.5:
@@ -373,13 +506,14 @@ class TrainingDashboard:
         else:
             overall = "HEALTHY\nGood Training Progress"
         
-        text = f"Epoch: {latest_epoch}\n"
+        avg_info = " (avg)" if use_avg else ""
+        text = f"Epoch: {latest_epoch}{avg_info}\n"
         text += f"Overall: {overall}\n"
         text += "-" * 40 + "\n"
         text += "\n".join(health_status)
         
         self.health_text.set_text(text)
-
+    
     def run(self):
         """Run the dashboard"""
         print(f"Monitoring: {self.csv_path} (Press Ctrl+C to exit)")
@@ -425,12 +559,12 @@ def main():
     parser = argparse.ArgumentParser(description='Training Dashboard for CompositeMotion')
     parser.add_argument('path', type=str, help='Path to training_metrics.csv OR folder containing it')
     parser.add_argument('-w', type=int, default=None, help='Number of epochs to display (None for all)')
-    parser.add_argument('-fpc', type=int, default=30, 
-                       help='Number of Frames-Per-Cycle for lifetime benchmarks (default: 30)')
+    parser.add_argument('-fpc', type=int, default=30,
+                        help='Number of Frames-Per-Cycle for lifetime benchmarks (default: 30)')
     parser.add_argument('-cpe', type=int, default=1,
-                       help='Number of Cycles-Per-Episode for lifetime benchmarks (default: 1)')
+                        help='Number of Cycles-Per-Episode for lifetime benchmarks (default: 1)')
     args = parser.parse_args()
-
+    
     # Resolve CSV path (handles both file and folder paths)
     csv_path = resolve_csv_path(args.path)
     

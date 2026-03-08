@@ -161,10 +161,8 @@ class ReferenceMotion():
         device: Optional[torch.device]=None
     ):
         self.device = device
-        self.fps = 0.0      # avg fps
-        self.n_frames = 0   # avg frames
-        self.period = 0.0   # max motion len (s)
-
+        self.fps = []      # fps of all motions
+        # NOTE: use self.motion_len (will be set in prepare data fn) for duration of each motions 
         skeleton = load_mjcf(character_model)
         self.dofs = [d[2] for d in skeleton.dofs]
         if key_links is None:
@@ -172,24 +170,17 @@ class ReferenceMotion():
         controllable_links = sorted(list(set([d[1] for d in skeleton.dofs])))
         motions = []
         if type(motion_file) == str:
-            m,n,f,t = self.load_motions(motion_file, skeleton, controllable_links, key_links)
+            m,f = self.load_motions(motion_file, skeleton, controllable_links, key_links)
             motions.extend(m)
-            self.n_frames = n
-            self.fps = int(f)
-            self.period = t
+            self.fps.extend(f)
 
         else:
             for data in motion_file:
-                m,n,f,t = self.load_motions(data, skeleton, controllable_links, key_links)
+                m,f = self.load_motions(data, skeleton, controllable_links, key_links)
                 motions.extend(m)
-                self.n_frames += n
-                self.fps += f
-                self.period = max(self.period, t)
+                self.fps.extend(f)
             # assume different files are different rand-seek options, we take avg to maintain consistency
-            l = len(motion_file)
-            assert l > 0
-            self.n_frames = self.n_frames / l
-            self.fps = round(self.fps / l)
+            self.fps = round(self.fps / len(motion_file))
         
         self.prepare_data(motions)
 
@@ -237,7 +228,7 @@ class ReferenceMotion():
 
     def load_motions(self, motion_file, skeleton, controllable_links, key_links):
         motions = []
-        avg_fps = 0
+        all_fps = []
         n_frames = 0
         ext = os.path.splitext(motion_file)[1]
         if ext == ".joblib":
@@ -247,7 +238,7 @@ class ReferenceMotion():
             motion_len = 0
             for motion in data:
                 fps = motion.fps
-                avg_fps += fps
+                all_fps.append(fps)
                 dt = 1.0 / fps
                 weight = None
                 motions.append((
@@ -263,10 +254,10 @@ class ReferenceMotion():
                 n_frame = len(motion.pos)
                 n_frames += n_frame
                 motion_len += dt*n_frame
-            avg_fps = avg_fps / len(data)
+            
             print("Loading {:d} motions from {:s}".format(len(motions), motion_file))
-            print("\t{:.4f}s, {:.2f} Hz (avg), {:d} frames.".format(motion_len, avg_fps, n_frames))
-            return motions, n_frames, avg_fps, motion_len
+            print(f"\t{motion_len:.4f}s, {all_fps} Hz (each), {n_frames:d} frames (sum).")
+            return motions, all_fps
         
         if ext == ".yaml":
             with open(motion_file, 'r') as f:
@@ -330,7 +321,7 @@ class ReferenceMotion():
                 n_frame = len(motion.pos)
                 fps = motion.fps
             
-            avg_fps += fps
+            all_fps.append(fps)
             n_frames += n_frame
             dt = 1.0 / fps
             motion_len = dt * (n_frame - 1)
@@ -348,12 +339,9 @@ class ReferenceMotion():
             ))
 
             print("\t\t{:.4f}s, {:d} Hz, {:d} frames.".format(motion_len, fps, n_frame))
-        l = len(motion_files)
-        assert l > 0
-        n_frames = n_frames / l
-        avg_fps = avg_fps / l
-        print("\tTotal: {:.4f}s (max), {:.2f} Hz (avg), {:.2f} frames (avg).".format(max_motion_len, avg_fps, n_frames))
-        return motions, n_frames, avg_fps, max_motion_len
+        
+        print(f"\tTotal: {max_motion_len:.4f}s (max), {all_fps} Hz (each), {n_frames} frames (sum).")
+        return motions, all_fps
 
     def sample(self, n, truncate_time=None):
         motion_ids = np.random.choice(len(self.motion_length), size=n, p=self.motion_weight, replace=True)

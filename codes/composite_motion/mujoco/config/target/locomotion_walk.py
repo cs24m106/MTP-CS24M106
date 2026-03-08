@@ -1,6 +1,5 @@
 env_cls = "ICCGANHumanoidTarget"
 env_params = dict(
-    episode_length = 500,
     motion_file = "assets/motions/clips_walk.yaml",
     goal_reward_weight = [0.5],
 
@@ -15,8 +14,8 @@ env_params = dict(
 )
 
 training_params = dict(
-    max_epochs = 100000,
-    save_interval = 10000,
+    max_epochs = 5000,
+    save_interval = 250,
     terminate_reward = -25
 )
 

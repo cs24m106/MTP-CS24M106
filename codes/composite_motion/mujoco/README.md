@@ -69,10 +69,6 @@ We provide our configure files in `config` folder for reference. To reproduce th
 
 e.g. `diff walks, please run the training by (will create sub folder automatically based on config file name)
 
-    $ python main.py config/iccgan/jaunty_walk.py --ckpt checkpoints    # Standalone Run
-    $ python main.py config/iccgan/limp_walk.py --ckpt checkpoints      # Phase Input - looped motion improvement
-    $ python main.py config/iccgan/joyful_walk.py --ckpt checkpoints    # Symmetry Loss - mirror clip mimicability
-
 e.g. `Juggling+Walk`, please run the training by
 
     $ python main.py config/juggling+locomotion_walk.py --ckpt checkpoints/juggling+locomotion_walk
@@ -85,6 +81,24 @@ After Trainning, you can view the run's logs made by tensorboard summary writter
 
     $ tensorboard --logdir=checkpoints/jaunty_walk
 
+### Case Studies
+- SubDiv: Horizon: 8, 16
+    - Case1: Standalone Run
+    - Case2: Phase Input - looped motion improvement
+    - Case3: Symmetry Loss - mirror clip mimicability
+
+to try on these motion configs: (each have different difficulty of training)
+
+    $ python main.py config/iccgan/limp_walk.py --ckpt casex
+    $ python main.py config/iccgan/joyful_walk.py --ckpt casex
+    $ python main.py config/iccgan/jaunty_walk.py --ckpt casex
+
+reason:
+- limp_walk   --> no jump. simple to imitate, slow paced
+- joyful_walk --> mild jump force involved, moderately paced
+- jaunty_walk --> higher jump, unstable mean pose, fast paced
+
+**NOTE:** using phase-input adds additional goal tensor to actor and critic. Thus model achitechiture itself fundamentally changes, thus it cant be used to load into model with other config without phase-inp enabled. (we can modify model interally thorugh, but lets just skip and abandon this method only for experimentations)
 
 ### Policy Evaluation
 

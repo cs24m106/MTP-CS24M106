@@ -45,7 +45,7 @@ class ICCGANHumanoid(MujocoEnv):
         self.loop_phase_obs = kwargs.pop("loop_phase_obs", False)
         self.phase_period  = float(kwargs.pop("phase_period", 1.0)) # best not to be set by training params
         # Cycle motion if termination not triggered & to set episode length based on how many motion cycles before hard reset.
-        self.max_cycles  = int(kwargs.pop("max_cycles", 5))
+        self.max_cycles  = int(kwargs.pop("max_cycles", 1)) # NOTE: keep > 1 if the motion is loopable, if not keep def: 1
         
         # initialize max_ob_horizon first itself, so base class can setup_state_spaces() correctly
         self.max_ob_horizon = self.ob_horizon + 1
@@ -174,9 +174,9 @@ class ICCGANHumanoid(MujocoEnv):
         
         # Load reference motion
         self.build_motion_lib(motion_file)
-        if "phase_period" not in kwargs and self.ref_motion.period > 0: # overwrite if not passed as training args
+        if "phase_period" not in kwargs and hasattr(self.ref_motion, 'motion_length'): # overwrite if not passed as training args
             #print(f"Ref-Motion :: Phase Input overwrites phase_period: {self.phase_period} -> {self.ref_motion.period} (max clip len in secs)\n")
-            self.phase_period = self.ref_motion.period # sets max motion len from ref-motion
+            self.phase_period = sum(self.ref_motion.motion_length) # sets max motion len from ref-motion
         
         # longest clip length converted to control steps.
         self.steps_per_cycle = max(1 * self.fps, round(self.phase_period * self.fps)) # (keep min range for 1s i.e. 30 steps for 30 fps motion)
@@ -198,9 +198,10 @@ class ICCGANHumanoid(MujocoEnv):
             device=self.device
         )
         # @overwrite prev calc in base class for refernce motion data
-        if self.ref_motion.fps > 0: 
-            print(f"Build Ref-Motion overwrites fps: {self.fps} -> {self.ref_motion.fps}") 
-            self.fps = self.ref_motion.fps # sets avg fps from ref-motion
+        if self.ref_motion.fps: 
+            avg_fps = sum(self.ref_motion.fps) / len(self.ref_motion.fps)
+            print(f"Build Ref-Motion overwrites fps: {self.fps} -> {avg_fps}") 
+            self.fps = avg_fps # sets avg fps from ref-motion
             self.frameskip = int(self.run_speed/self.fps)
             self.step_time = 1.0 / self.fps
     
@@ -377,7 +378,7 @@ class ICCGANHumanoid(MujocoEnv):
             info["disc_obs"] = self.observe_disc(self.state_hist)
             info["disc_obs_expert"] = self.fetch_real_samples()
 
-        # --- Motion cycle detection ---
+        # --- Motion cycle detection: reset only when given motion is for sure is loopable (start frame & end frame of motion should be seamless) ---
         # When an env finishes one full motion clip (lifetime is a nonzero multiple of motion_ep_len) 
         # without having already been terminated/truncated, perform a soft cycle reset so the motion loops seamlessly.
         # self.obs and self.done are already set by super().step(); we must NOT touch
