@@ -64,94 +64,118 @@ def dashboard_worker(csv_path, steps_per_cycle, max_cycles, window_size=None):
     dash.run()
 #---
 
-def test(env, model, save_dir, max_steps=10000):
-    """Test the trained model"""
+def test(env, model, save_dir, max_episodes=10):
+    """Test the trained model.
+
+    rgb_array mode: collects frames for each episode and saves a GIF at env.fps
+    once env.done[0] is True.  Saves up to max_episodes GIFs.
+    human mode: runs until the viewer is closed or max_episodes is exceeded.
+    Exit early at any point with ESC / 'q' (rgb_array) or by closing the viewer.
+    """
+    import imageio                           # lazy import: not needed during training
     model.eval()
     env.eval()
-    env.reset()    
-    steps = 0
-    
+    env.reset()
+
     if env.render_mode is not None:
         save_folder = f"env_{env.render_mode}"
         os.makedirs(os.path.join(save_dir, save_folder), exist_ok=True)
-    
-    while steps < max_steps:
-        with torch.no_grad():
-            obs, info = env.reset_done()
-            
-            # Check for NaN in observations
-            if torch.isnan(obs).any():
-                nan_count = torch.isnan(obs).sum().item()
-                print(f"ERROR: NaN detected in obs, count: {nan_count}")
-                print(f"NaN locations: {torch.where(torch.isnan(obs))}")
-                print(f"Obs sample:\n{obs[0]}")
-                break
-            
-            seq_len = info["ob_seq_lens"]
-            actions = model.act(obs, seq_len - 1)
-            
-            # Check for NaN in actions
-            if torch.isnan(actions).any():
-                print(f"ERROR: NaN detected in actions")
-                break
-        
-        # DEBUG Problem
-        if env.verbose and steps == 0:
-            print(f"Observation stats:")
-            print(f"  Shape: {obs.shape}")
-            print(f"  Min: {obs.min():.4f}, Max: {obs.max():.4f}")
-            print(f"  Mean: {obs.mean():.4f}, Std: {obs.std():.4f}")
-            print(f"  NaN count: {torch.isnan(obs).sum()}")
-            print(f"  First 10 obs: {obs[0, :10]}")
-            print(f"\n[ACTION DEBUG]")
-            print(f"  Raw actions: min={actions.min():.4f}, max={actions.max():.4f}, mean={actions.mean():.4f}")
-            print(f"  Non-zero count: {(actions.abs() > 0.01).sum().item()}/{actions.numel()}")
-            print(f"  First 10: {actions[0, :10]}\n")
 
-        obs, rewards, terminated, truncated, info = env.step(actions.cpu().numpy())
-        if rewards.size > 0:
-            title = f"Step {steps}, reward: {rewards.mean():.4f}"
-        else:
-            title = f"Step {steps} (no task reward - discriminator-only mode)"
-        
-        # Render if enabled
-        if env.render_mode is not None:
-            frame = env.render()
-            #print(f"frame {f"(dtype={frame.dtype})" if hasattr(frame, "dtype") else ""}: \n{frame}\n")
-            
-            # Offscreen frames returned for (rgb_array)
-            if env.render_mode == "rgb_array" and isinstance(frame, np.ndarray):
-                bgr = cv2.cvtColor(
-                    np.ascontiguousarray(frame, dtype=np.uint8),  # Force contiguous uint8 array
-                    cv2.COLOR_RGB2BGR  # Convert RGB → BGR (OpenCV's native format)
-                )
-                
-                # Draw a black outline then white text for readability
-                font = cv2.FONT_HERSHEY_SIMPLEX
-                org = (10, 25)  # x,y
-                cv2.putText(bgr, title, org, font, 0.6, (0, 0, 0), thickness=3, lineType=cv2.LINE_AA)
-                cv2.putText(bgr, title, org, font, 0.6, (255, 255, 255), thickness=1, lineType=cv2.LINE_AA)
+    episode_count  = 0
+    total_steps    = 0
+    quit_requested = False
 
-                # Show via resizable window (save periodic frames)
-                #cv2.namedWindow(save_folder, cv2.WINDOW_NORMAL)
-                cv2.imshow(save_folder, bgr)
-                if steps % 100 == 0:
-                    cv2.imwrite(os.path.join(save_dir, save_folder, f"frame_{steps:05d}.png"), bgr)
-        
-            if check_exit(env):
-                print(f"User requested exit!")
-                break
-        
-        # Print progress every 100 steps
-        if steps % 100 == 0:
-            #render_file = os.path.join(save_dir, save_folder, f"frame_{steps:05d}.png")
-            print(title)
-            #print(f"... check save_path (exists?{os.path.exists(render_file)}) : {render_file}")
-        
-        steps += 1
-    
+    while episode_count < max_episodes and not quit_requested:
+        # ---- per-episode state ------------------------------------------------
+        episode_frames: list = []       # RGB uint8 arrays for GIF (rgb_array only)
+        episode_steps  = 0
+        episode_done   = False
+
+        # Inner loop: run until env-0 signals done (terminated or truncated)
+        while not episode_done:
+            with torch.no_grad():
+                obs, info = env.reset_done()
+
+                # NaN guard
+                if torch.isnan(obs).any():
+                    nan_count = torch.isnan(obs).sum().item()
+                    print(f"ERROR: NaN in obs ({nan_count} values) ep={episode_count} step={episode_steps}")
+                    print(f"NaN locations: {torch.where(torch.isnan(obs))}")
+                    print(f"Obs sample:\n{obs[0]}")
+                    quit_requested = True
+                    break
+
+                seq_len = info["ob_seq_lens"]
+                actions = model.act(obs, seq_len - 1)
+
+                if torch.isnan(actions).any():
+                    print(f"ERROR: NaN in actions ep={episode_count} step={episode_steps}")
+                    quit_requested = True
+                    break
+
+            # Verbose first-step dump (once per test run)
+            if env.verbose and total_steps == 0:
+                print(f"Observation stats:")
+                print(f"  Shape: {obs.shape}")
+                print(f"  Min: {obs.min():.4f}, Max: {obs.max():.4f}")
+                print(f"  Mean: {obs.mean():.4f}, Std: {obs.std():.4f}")
+                print(f"  NaN count: {torch.isnan(obs).sum()}")
+                print(f"  First 10 obs: {obs[0, :10]}")
+                print(f"\n[ACTION DEBUG]")
+                print(f"  Raw actions: min={actions.min():.4f}, max={actions.max():.4f}, mean={actions.mean():.4f}")
+                print(f"  Non-zero count: {(actions.abs() > 0.01).sum().item()}/{actions.numel()}")
+                print(f"  First 10: {actions[0, :10]}\n")
+
+            obs, rewards, terminated, truncated, info = env.step(actions.cpu().numpy())
+            reward_str = f"{rewards.mean():.4f}" if rewards.size > 0 else "N/A (disc-only)"
+            title = f"Ep {episode_count} Step {episode_steps}, reward: {reward_str}"
+
+            # ---- Render ------------------------------------------------------
+            if env.render_mode is not None:
+                frame = env.render()
+
+                if env.render_mode == "rgb_array" and isinstance(frame, np.ndarray):
+                    # Annotate frame; keep RGB copy for GIF, show BGR in cv2
+                    rgb = np.ascontiguousarray(frame, dtype=np.uint8)
+                    bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+
+                    font = cv2.FONT_HERSHEY_SIMPLEX
+                    org  = (10, 25)
+                    cv2.putText(bgr, title, org, font, 0.6, (0, 0, 0),    thickness=3, lineType=cv2.LINE_AA)
+                    cv2.putText(bgr, title, org, font, 0.6, (255,255,255), thickness=1, lineType=cv2.LINE_AA)
+                    cv2.imshow(save_folder, bgr)
+
+                    # Store annotated frame as RGB for imageio GIF
+                    episode_frames.append(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB))
+
+                if check_exit(env):
+                    print("User requested exit!")
+                    quit_requested = True
+                    break
+
+            # Progress log every 100 steps
+            if episode_steps % 100 == 0:
+                print(title)
+
+            episode_steps += 1
+            total_steps   += 1
+
+            # Episode ends when env-0 is done (terminated or truncated)
+            episode_done = bool(env.done[0].item())
+
+        # ---- save GIF for completed episode (rgb_array mode) -----------------
+        if env.render_mode == "rgb_array" and episode_frames and not quit_requested:
+            fps      = int(getattr(env, "fps", 30))
+            gif_path = os.path.join(save_dir, save_folder, f"episode_{episode_count:03d}.gif")
+            # imageio expects list of (H,W,3) uint8 arrays; duration = seconds per frame
+            imageio.mimsave(gif_path, episode_frames, fps=fps)
+            print(f"Saved GIF ({len(episode_frames)} frames @ {fps} fps): {gif_path}")
+
+        episode_count += 1
+        print(f"Episode {episode_count}/{max_episodes} done  ({episode_steps} steps)")
+
     env.close()
-    print(f"Test completed: {steps} steps")
+    print(f"Test completed: {episode_count} episodes, {total_steps} total steps")
 # ---
 
 def train(env, model, ckpt_dir, training_params, init_epoch=0):

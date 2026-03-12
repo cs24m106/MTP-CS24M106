@@ -95,9 +95,12 @@ class TrainingDashboard:
         self.ax_disc.set_ylabel('Score')
         # Score Baselines
         self.ax_disc.axhline(y=0, color='k', linewidth=.8, linestyle='-', alpha=0.3)
-        self.ax_disc.axhline(y=0.2, color='g', linewidth=.8, linestyle='--', alpha=0.3, label='Target Real (>0.2)')
-        self.ax_disc.axhline(y=-0.2, color='r', linewidth=.8, linestyle='--', alpha=0.3, label='Target Fake (<-0.2)')
-        self.ax_disc.legend(loc='upper right', fontsize='small')
+        self.ax_disc.axhline(y=0.2, color='g', linewidth=.8, linestyle='--', alpha=0.4)
+        self.ax_disc.text(1.02, 0.2, 'Real (>0.2)', transform=self.ax_disc.get_yaxis_transform(),
+                            fontsize=6, va='center', ha='left', alpha=0.7, color='magenta')
+        self.ax_disc.axhline(y=-0.2, color='r', linewidth=.8, linestyle='--', alpha=0.4)
+        self.ax_disc.text(1.02, -0.2, 'Fake (<-0.2)', transform=self.ax_disc.get_yaxis_transform(),
+                            fontsize=6, va='center', ha='left', alpha=0.7, color='magenta')
         self.ax_disc.grid(True, alpha=0.3)
         
         # Cache for disc lines to avoid recreation
@@ -128,9 +131,12 @@ class TrainingDashboard:
         self.ax_gap.set_xlabel('Epoch')
         self.ax_gap.set_ylabel('Gap')
         # Gap Baselines
-        self.ax_gap.axhline(y=0.25, color='k', linewidth=.8, linestyle='--', alpha=0.5, label='Warning (0.25)')
-        self.ax_gap.axhline(y=0.5, color='k', linewidth=.8, linestyle='-', alpha=0.5, label='Critical (0.5)')
-        self.ax_gap.legend()
+        self.ax_gap.axhline(y=0.25, color='k', linewidth=.8, linestyle='--', alpha=0.5)        
+        self.ax_gap.text(1.02, 0.25, 'Warning (0.25)', transform=self.ax_gap.get_yaxis_transform(),
+                            fontsize=6, va='center', ha='left', alpha=0.7, color='magenta')
+        self.ax_gap.axhline(y=0.5, color='k', linewidth=.8, linestyle='-', alpha=0.5)    
+        self.ax_gap.text(1.02, 0.5, 'Critical (0.5)', transform=self.ax_gap.get_yaxis_transform(),
+                            fontsize=6, va='center', ha='left', alpha=0.7, color='magenta')
         self.ax_gap.grid(True, alpha=0.3)
         
         # Plot 6: Health Status
@@ -350,7 +356,7 @@ class TrainingDashboard:
         
         # Update legend only once (baselines are static from _init_plots)
         if self.disc_names:
-            self.ax_disc.legend(loc='upper right', fontsize='small')
+            self.ax_disc.legend(loc='upper left', fontsize='x-small')
         
         # Update ALL reward plots
         self.ax_reward.set_xlim(x_min, x_max)
@@ -388,7 +394,7 @@ class TrainingDashboard:
                 min_reward = min(all_reward_values)
                 max_reward = max(all_reward_values)
                 self.ax_reward.set_ylim(min_reward - 0.1, max_reward + 0.1)
-            self.ax_reward.legend(loc='upper right', fontsize='x-small')
+            self.ax_reward.legend(loc='lower right', fontsize='x-small')
         
         # Update loss plot
         self.line_policy_loss.set_data(epochs, list(self.policy_losses))
@@ -418,7 +424,7 @@ class TrainingDashboard:
                 self.gap_lines[name] = gap_line
         
         if self.disc_names:
-            self.ax_gap.legend(fontsize=8)
+            self.ax_gap.legend(loc='lower right', fontsize='small')
         
         # Update health status
         self._update_health_text()

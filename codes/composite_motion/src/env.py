@@ -458,10 +458,10 @@ class ICCGANHumanoid(Env):
     CONTACTABLE_LINKS = ["right_foot", "left_foot"]
     UP_AXIS = 2
 
-    GOAL_DIM = 0
-    GOAL_REWARD_WEIGHT = None
-    ENABLE_GOAL_TIMER = False
-    GOAL_TENSOR_DIM = None
+    GOAL_DIM = 0                # Dimension of goal observation (x, y, speed, distance)
+    GOAL_REWARD_WEIGHT = None   # Weight for goal-reaching reward in total reward
+    ENABLE_GOAL_TIMER = False   # Enables time-limited goal reaching
+    GOAL_TENSOR_DIM = None      # Goal tensor stores (target_x, target_y, timer)
 
     OB_HORIZON = 4
     KEY_LINKS = None    # All links
@@ -940,7 +940,7 @@ class ICCGANHumanoidTarget(ICCGANHumanoid):
     GOAL_SP_MIN = 0
     GOAL_SP_MAX = 1.25
 
-    SHARP_TURN_RATE = 1
+    SHARP_TURN_RATE = 1         # Probability of large direction changes
 
     def __init__(self, *args, **kwargs):
         self.goal_radius = kwargs.get("goal_radius", self.GOAL_RADIUS)
@@ -1027,6 +1027,18 @@ class ICCGANHumanoidTarget(ICCGANHumanoid):
         dx = dist*torch.cos(theta)
         dy = dist*torch.sin(theta)
 
+        # target (x,y) = root position + (dx,dy)
+        #                     Target (goal_x, goal_y)
+        #                         ●
+        #                        /|
+        #                       /-|
+        #                 dist / θ| dy
+        #                     /   |
+        #                    /    |
+        #                   /-----|
+        #    Character ●───┘  dx  │
+        #   (root_pos)            │
+        #                         └──────────
         if all_envs:
             self.init_dist = dist
             goal_timer.copy_(timer)

@@ -69,6 +69,8 @@ We provide our configure files in `config` folder for reference. To reproduce th
 
 e.g. `diff walks, please run the training by (will create sub folder automatically based on config file name)
 
+    $ python main.py config/target/locomotion_walk.py --ckpt checkpoints
+
 e.g. `Juggling+Walk`, please run the training by
 
     $ python main.py config/juggling+locomotion_walk.py --ckpt checkpoints/juggling+locomotion_walk
@@ -186,3 +188,10 @@ If you use the code or provided motions for your work, please consider citing ou
         doi = {10.1145/3480148},
         keywords = {physics-based control, character animation, reinforcement learning, GAN}
     }
+
+
+## Conclusions and further works
+- motions starting from non-balanced initial pose, mostly jump based motions, have very hard time mimicing the motion in physics simulator
+- there are few loopholes to not trigger fall off of humanoid char model depending on motion (locomotion_run) as well as 
+- there is downside in existing termination condition hinder learning of certain motion that have data of char doing acrobatics where it falls and gets up or similar stuff (roll)
+- 

@@ -1,6 +1,7 @@
 env_cls = "ICCGANHumanoid"
 env_params = dict(
-    motion_file = "assets/motions/iccgan/roll.json"
+    motion_file = "assets/motions/iccgan/roll.json",
+    grace_steps = 30, # ground contact time at least 1s i.e. 30 steps for 30fps (for larger duration slow increase over time)
 )
 
 training_params = dict(

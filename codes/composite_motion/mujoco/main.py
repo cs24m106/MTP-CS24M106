@@ -67,7 +67,7 @@ np.set_printoptions(linewidth=120, suppress=True, precision=6, sign=' ', floatmo
 #os.environ['CUDA_LAUNCH_BLOCKING'] = '1' # use for debuging without 
 
 TRAINING_PARAMS = dict(     # env - represent params to set to environment (make sure to verify if applied in cmds.txt)
-    horizon = 8,           # default = 8 [each PPO epoch (one buffer fill) takes 8 env steps] --> longer rollouts give much better GAE advantage estimates
+    horizon = 16,           # default = 8 [each PPO epoch (one buffer fill) takes 8 env steps] --> longer rollouts give much better GAE advantage estimates
     num_envs = 32,          # default = 512 (512*8 = 256*16 --> 16 batches produced) -- heavy 1ep = 20s
     simulation_speed = 120, # env-set: physics simulation running at 120 hz as per paper
     batch_size = 256,       # default = 256
@@ -172,14 +172,14 @@ def get_ckpt_dir_and_weights_file(ckpt_path, config_path):
                 ckpt_dir = os.path.join(ckpt_dir, config_base)
 
     # --- Added for my convention's convinience ---
-    grp_dir = os.path.dirname(ckpt_dir)
-    grp_dir += '-'
-    if env.loop_phase_obs:
-        grp_dir += 'l'
-    if training_params.sym_loss_coeff > 0.0:
-        grp_dir += 's'
-    grp_dir += f'-h{training_params.horizon}'
-    ckpt_dir = os.path.join(grp_dir, os.path.basename(ckpt_dir))
+    # grp_dir = os.path.dirname(ckpt_dir)
+    # grp_dir += '-'
+    # if env.loop_phase_obs:
+    #     grp_dir += 'l'
+    # if training_params.sym_loss_coeff > 0.0:
+    #     grp_dir += 's'
+    # grp_dir += f'-h{training_params.horizon}'
+    # ckpt_dir = os.path.join(grp_dir, os.path.basename(ckpt_dir))
     # --- remove if not needed ---
     os.makedirs(ckpt_dir, exist_ok=True)
     weights_file = os.path.join(ckpt_dir, "ckpt")
@@ -250,14 +250,25 @@ if __name__ == "__main__":
         if settings.render == 'int': #interactive human realtime
             render_mode = "human"
 
-    print(f"Env(render:{settings.render}-{render_mode}): {env_cls} Params:\n{config.env_params}\n")
-
+    print(f"Env(render:{settings.render}-{render_mode}): {env_cls} Params:\n{config.env_params}")
     if settings.test:
         num_envs = 1        # one env will be rendering realtime to view
-        grace_steps = training_params.grace_steps
     else:
         num_envs = training_params.num_envs
-        grace_steps = 1     # allowing grace steps in training is not ideal
+    
+    # if config file env params grace_steps given, its supposed based on motion difficulty type, dont override it
+    grace_steps = config.env_params.pop('grace_steps', None) 
+    if grace_steps is None:
+        if settings.test:
+            grace_steps = training_params.grace_steps
+            print(f"Grace-Steps allowed for testing by training-params => {grace_steps}\n")
+        else:
+            grace_steps = 1     # allowing grace steps in training is not ideal
+            print(f"Grace-Steps strict rule overwritten for training (reset to default) => {grace_steps}\n")
+    else:
+        if settings.test:
+            grace_steps *= 2
+        print(f"Grace-Steps overwritten by env-params {"(doubled for test) " if settings.test  else ""}=> {grace_steps}\n")
 
     # Create environment
     env = env_cls(

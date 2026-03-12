@@ -176,19 +176,19 @@ class ICCGANHumanoid(MujocoEnv):
         self.build_motion_lib(motion_file)
         if "phase_period" not in kwargs and hasattr(self.ref_motion, 'motion_length'): # overwrite if not passed as training args
             #print(f"Ref-Motion :: Phase Input overwrites phase_period: {self.phase_period} -> {self.ref_motion.period} (max clip len in secs)\n")
-            self.phase_period = sum(self.ref_motion.motion_length) # sets max motion len from ref-motion
+            self.phase_period = sum(self.ref_motion.motion_length) / len(self.ref_motion.motion_length) # avg motion len from ref-motion clips
         
         # longest clip length converted to control steps.
         self.steps_per_cycle = max(1 * self.fps, round(self.phase_period * self.fps)) # (keep min range for 1s i.e. 30 steps for 30 fps motion)
         self.episode_length = self.max_cycles * self.steps_per_cycle
         print("\n[ICCGAN-Humanoid Init] Update Episode params:")
-        print(f"  Motion cycle: {self.phase_period:.3f}s (max) = {self.steps_per_cycle} steps (aggregate).")
+        print(f"  Motion cycle: {self.phase_period:.3f}s (avg) = {self.steps_per_cycle} steps (aggregate).")
         print(f"  Max Episode Length = {self.steps_per_cycle} x {self.max_cycles} = {self.episode_length} steps.\n")
         
         self.sampling_workers = []
         self.real_samples = []
 
-# ---------------------------------------------------------------------------------------------
+    # ---------------------------------------------------------------------------------------------
        
     def build_motion_lib(self, motion_file):
         """Build reference motion library"""
@@ -232,7 +232,7 @@ class ICCGANHumanoid(MujocoEnv):
         
         self.char_contact_force_tensor = self.contact_force_tensor
         # Grace counter for termination (tracks consecutive low-height frames)
-        self.terminate_counter = torch.zeros((self.n_envs,), dtype=torch.int32, device=self.device)
+        self.terminate_counter = torch.zeros((self.n_envs,), dtype=torch.float32, device=self.device)
 
         # Phase-conditioned observation tensors
         if self.loop_phase_obs:
@@ -281,12 +281,12 @@ class ICCGANHumanoid(MujocoEnv):
         self.goal_timer = torch.zeros((self.n_envs,), dtype=torch.int32, device=self.device) \
             if self.enable_goal_timer else None
     
-# ---------------------------------------------------------------------------------------------
+    # ---------------------------------------------------------------------------------------------
 
     def reset_envs(self, env_ids):  # overwrite for extra handling
         super().reset_envs(env_ids)          # calls init_state → sets env_motion_times
         self.state_hist[:, env_ids] = 0.0
-        self.terminate_counter[env_ids] = 0 
+        self.terminate_counter[env_ids] = 0.0
         # Phase Input: seed phase from the motion time sampled in init_state
         if self.loop_phase_obs:
             self.env_phase[env_ids] = (
@@ -310,7 +310,7 @@ class ICCGANHumanoid(MujocoEnv):
         and reset lightweight counters that track within-cycle state.
 
         No need teleport Root world-XY back to origin: the discriminator's
-        observe_iccgan_safe() already works in a root-relative frame (horizontal
+        observe_iccgan() already works in a root-relative frame (horizontal
         origin zeroed, only heading used), so absolute XY drift is invisible to
         imitation loss and harmless for physics stability.
         """
@@ -318,7 +318,7 @@ class ICCGANHumanoid(MujocoEnv):
         # start) already tells the GRU to read only the freshest slot, so this is safe.
         self.state_hist[:, env_ids] = 0.0
         # Reset per-cycle counters
-        self.terminate_counter[env_ids] = 0
+        self.terminate_counter[env_ids] = 0.0
         if self.loop_phase_obs:
             self.env_phase[env_ids] = 0.0
 
@@ -340,7 +340,7 @@ class ICCGANHumanoid(MujocoEnv):
         
         return ref_link_tensor, ref_joint_tensor
     
-# ---------------------------------------------------------------------------------------------
+    # ---------------------------------------------------------------------------------------------
         
     def fetch_real_samples(self):
         """Fetch real samples from reference motion"""
@@ -361,7 +361,7 @@ class ICCGANHumanoid(MujocoEnv):
                 # Create discriminator observations
                 disc_obs = {}
                 for name, disc in self.discriminators.items():
-                    ob = observe_iccgan_safe(samples[-disc.ob_horizon:], None, disc.key_links, disc.parent_link,
+                    ob = observe_iccgan(samples[-disc.ob_horizon:], None, disc.key_links, disc.parent_link,
                         include_velocity=False, local_pos=disc.local_pos)
                     disc_obs[name] = ob.cpu()
                 
@@ -396,7 +396,7 @@ class ICCGANHumanoid(MujocoEnv):
         """Get ground height at position"""
         return None
     
-# ---------------------------------------------------------------------------------------------
+    # ---------------------------------------------------------------------------------------------
     
     def observe(self, env_ids=None):
         """Observe with ICCGAN observation function"""
@@ -431,7 +431,7 @@ class ICCGANHumanoid(MujocoEnv):
         """Internal ICCGAN observation"""
         if env_ids is None:
             ground_height = self.ground_height(self.state_hist[-1, :, :3])
-            obs = observe_iccgan_safe(
+            obs = observe_iccgan(
                 self.state_hist[-self.ob_horizon:], self.ob_seq_lens, self.key_links, self.parent_link,
                 ground_height=ground_height
             ).flatten(start_dim=1)
@@ -444,7 +444,7 @@ class ICCGANHumanoid(MujocoEnv):
                 obs = torch.cat([obs, phase_enc], dim=-1)
         else:
             ground_height = self.ground_height(self.state_hist[-1, env_ids, :3], env_ids)
-            obs = observe_iccgan_safe(
+            obs = observe_iccgan(
                 self.state_hist[-self.ob_horizon:][:, env_ids], self.ob_seq_lens[env_ids],
                 self.key_links, self.parent_link,
                 ground_height=ground_height
@@ -474,7 +474,7 @@ class ICCGANHumanoid(MujocoEnv):
         if torch.is_tensor(state):
             # Fake — build discriminator observations from current state history
             for id, disc in self.discriminators.items():
-                ob = observe_iccgan_safe(
+                ob = observe_iccgan(
                     state[-disc.ob_horizon:], seq_len,
                     disc.key_links, disc.parent_link,
                     include_velocity=False, local_pos=disc.local_pos
@@ -496,7 +496,7 @@ class ICCGANHumanoid(MujocoEnv):
             seq_len_ = dict()
             for disc_name, s in state.items():
                 disc = self.discriminators[disc_name]
-                res[disc_name] = observe_iccgan_safe(
+                res[disc_name] = observe_iccgan(
                     s[-disc.ob_horizon:], seq_len,
                     disc.key_links, disc.parent_link,
                     include_velocity=False, local_pos=disc.local_pos
@@ -505,51 +505,75 @@ class ICCGANHumanoid(MujocoEnv):
             return res, seq_len_
 
     def termination_check(self):
-        """Check termination conditions"""
+        """Check termination conditions.
+        Two independent paths both contribute to termination:
+
+        PATH A  — contact + height (original logic, catches torso-on-ground):
+            Any non-foot link is both (a) receiving a contact force > 1 and
+            (b) below its height threshold.  Requires N consecutive frames
+            (grace_steps=1 def training) to fire, which smooths out brief ground-brush events.
+
+        PATH B  — root height only (NEW, catches the lying/sliding loophole):
+            If the root (pelvis) z-position drops below `term_height` for (N*2)
+            consecutive frames we terminate regardless of contact forces.
+            --> 2 times original so that training, dont waste too much time on it
+            --> def training grace_step is supposed to be strict, i.e. 1, just like src code
+            grace steps was initially added as a feature while testing, later extend to motion based
+            where roll action require a bit of grace time to actually see if the character rise up again.
+        
+        New Termination Counter Logic:
+            Prevents accumulation - Counter won't grow indefinitely over long episodes
+            Allows recovery - Character can fall briefly and get up without terminating
+            Recent-weighted - Only the last few frames matter (like a sliding window)
+            No separate counters - Still using single shared counter for both paths
+        """
         if self.contactable_links is None:
             return torch.zeros_like(self.done)
-        
-        # Check contact forces — requires contact_force_tensor to be current (updated in _sync_state_from_mujoco)
-        contacted = torch.any(self.char_contact_force_tensor.abs() > 1., dim=-1)
-        
-        # Check height
+
+        # --- PATH A: contact-force + per-link height ---
+        contacted = torch.any(self.char_contact_force_tensor.abs() > 1., dim=-1)  # [n_envs, n_links]
+
         ground_height = self.ground_height(self.char_root_tensor[:, :3])
         if ground_height is None:
             low_threshold = self.contactable_links
         else:
             low_threshold = self.contactable_links + ground_height.unsqueeze(1)
+
+        too_low = self.link_pos[..., self.UP_AXIS] < low_threshold           # [n_envs, n_links]
+        # any of the joints have force > 1 & current height from ground < threshold
+        cond_env_A = torch.any(torch.logical_and(contacted, too_low), dim=-1) # [n_envs]
+
+        # --- PATH B: root/pelvis height alone ---
+        root_z = self.root_pos[:, self.UP_AXIS]                               # [n_envs]
+        root_floor = 0.0 if ground_height is None else ground_height
+        cond_env_B = (root_z - root_floor) < self.term_height                 # [n_envs]
+
+        # --- Weighted grace counter (shared across both paths) ---
+        # Path A: +1.0 per frame, Path B (when A fails): +0.5 per frame
+        # Neither: -1.0 per frame (allows recovery, prevents accumulation)
+        increment = torch.where(
+            cond_env_A,                    # If Path A satisfied
+            torch.ones_like(self.terminate_counter, dtype=torch.float32),
+            torch.where(
+                cond_env_B,                # Else if Path B satisfied
+                torch.full_like(self.terminate_counter, 0.5),
+                torch.full_like(self.terminate_counter, -1.0)  # Recovery: decrement
+            )
+        )
         
-        too_low = self.link_pos[..., self.UP_AXIS] < low_threshold
+        # Accumulate increment with clamping to prevent negative values
+        self.terminate_counter = torch.clamp(self.terminate_counter + increment, min=0.0)
 
-        # --- grace logic: require N consecutive frames of (contacted & too_low) before terminating ---
-        # cond_per_link: shape [n_envs, n_links]
-        cond_per_link = torch.logical_and(contacted, too_low)
-
-        # cond_env is True if any link in that env meets the cond
-        cond_env = torch.any(cond_per_link, dim=-1)  # shape [n_envs]
-
-        # increment where cond_env True, reset where False
-        # make sure dtype matches terminate_counter
-        incr = cond_env.to(self.terminate_counter.dtype)
-        # increment
-        self.terminate_counter = self.terminate_counter + incr
-        # reset counters where condition false
-        self.terminate_counter *= incr
-
-        # terminate when counter >= grace AND lifetime > 1 (preserves earlier lifetime check)
         terminate = (self.terminate_counter >= int(self.grace_steps)) & (self.lifetime > 1)
 
-        # ---- DEBUG: show why/how often we terminate ----
         if self.verbose and self.simulation_step % 100 == 0:
-            n_contact  = contacted.sum().item()
-            n_too_low  = too_low.any(-1).sum().item()
-            n_term     = terminate.sum().item()
-            root_h_min = self.link_pos[:, 0, self.UP_AXIS].min().item()  # pelvis
-            cf_max     = self.char_contact_force_tensor.abs().max().item()
             print(f"  [TERM-DBG] step={self.simulation_step:5d} | "
-                f"contacted={n_contact}/{self.n_envs}  too_low={n_too_low}/{self.n_envs}  "
-                f"terminate={n_term} | root_h_min={root_h_min:.3f}  cf_max={cf_max:.2f}")
-        
+                  f"pathA={cond_env_A.sum().item()}/{self.n_envs}  "
+                  f"pathB={cond_env_B.sum().item()}/{self.n_envs}  "
+                  f"terminate={terminate.sum().item()} | "
+                  f"root_h_min={root_z.min().item():.3f}  "
+                  f"cf_max={self.char_contact_force_tensor.abs().max().item():.2f}")
+
         return terminate
     
     def reward(self):
@@ -557,128 +581,358 @@ class ICCGANHumanoid(MujocoEnv):
         # defualt 0 task rewards (rew_dim = 0) i.e. trained only on 1 discriminator
         return super().reward()
 
+# =================================================================================================
 
 class ICCGANHumanoidTarget(ICCGANHumanoid):
-    """ICCGAN Humanoid with target reaching - for locomotion tasks"""
-    
-    GOAL_DIM = 4    # direction(2) + distance(1) + speed(1), per paper appendix B.2
+    """ICCGAN Humanoid with target reaching — ported from IsaacGym src.
+
+    goal_tensor layout : [x, y, z]  (3-D world position; z kept for compat, always 0)
+    Goal observation   : [dir_x, dir_y, speed, dist] — 4D, root-heading–relative
+    Reward             : velocity-matching reward (same formula as src repo)
+    Extra termination  : too_far — if agent drifts > 3 m beyond initial dist to goal
+    Visualization      : goal marker drawn every render() call (sphere + radius ring)
+    """
+
+    GOAL_DIM = 4                    # dir(2) + speed(1) + dist(1)  — paper App B.2
     GOAL_REWARD_WEIGHT = [0.5]
     ENABLE_GOAL_TIMER = True
-    GOAL_TENSOR_DIM = 2
-    
+    GOAL_TENSOR_DIM = 3             # (x, y, z) world position; z unused (kept for src compat)
+
+    GOAL_RADIUS    = 0.5
+    SP_LOWER_BOUND = 1.2
+    SP_UPPER_BOUND = 1.5
+    GOAL_TIMER_RANGE = (90, 150)
+    GOAL_SP_MEAN   = 1.0
+    GOAL_SP_STD    = 0.25
+    GOAL_SP_MIN    = 0.0
+    GOAL_SP_MAX    = 1.25
+    SHARP_TURN_RATE = 1             # probability of large direction change (1 = always random)
+
     def __init__(self, *args,
-        goal_radius: float = 0.5,
-        sp_lower_bound: float = 1.2,
-        sp_upper_bound: float = 1.5,
-        goal_timer_range: Tuple[int, int] = (90, 150),
-        goal_sp_mean: float = 1.0,
-        goal_sp_std: float = 0.25,
-        goal_sp_min: float = 0.0,
-        goal_sp_max: float = 1.25,
+        goal_radius:      float           = GOAL_RADIUS,
+        sp_lower_bound:   float           = SP_LOWER_BOUND,
+        sp_upper_bound:   float           = SP_UPPER_BOUND,
+        goal_timer_range: Tuple[int, int] = GOAL_TIMER_RANGE,
+        goal_sp_mean:     float           = GOAL_SP_MEAN,
+        goal_sp_std:      float           = GOAL_SP_STD,
+        goal_sp_min:      float           = GOAL_SP_MIN,
+        goal_sp_max:      float           = GOAL_SP_MAX,
+        sharp_turn_rate:  float           = SHARP_TURN_RATE,
         **kwargs
     ):
-        self.goal_radius = goal_radius
-        self.sp_lower_bound = sp_lower_bound
-        self.sp_upper_bound = sp_upper_bound
+        self.goal_radius     = goal_radius
+        self.sp_lower_bound  = sp_lower_bound
+        self.sp_upper_bound  = sp_upper_bound
         self.goal_timer_range = goal_timer_range
-        self.goal_sp_mean = goal_sp_mean
-        self.goal_sp_std = goal_sp_std
-        self.goal_sp_min = goal_sp_min
-        self.goal_sp_max = goal_sp_max
-        
-        # Extract n_envs and compute_device from args/kwargs to initialize buffers early
-        n_envs = kwargs.get('n_envs', args[0] if len(args) > 0 else 1)
-        compute_device = kwargs.get('compute_device', 0)
-        device = torch.device(f"cuda:{compute_device}" if torch.cuda.is_available() and compute_device >= 0 else "cpu")
-        
-        # Initialize goal positions
-        self.goal_pos = torch.zeros((n_envs, 2), dtype=torch.float32, device=device)
-        self.goal_speed = torch.ones((n_envs,), dtype=torch.float32, device=device)
+        self.goal_sp_mean    = goal_sp_mean
+        self.goal_sp_std     = goal_sp_std
+        self.goal_sp_min     = goal_sp_min
+        self.goal_sp_max     = goal_sp_max
+        self.sharp_turn_rate = sharp_turn_rate
 
-        # need above params for reward fns to be initialized priorly before setup_state_spaces()
+        # super().__init__ will call create_tensors() → goal_tensor allocated there
+        # (GOAL_TENSOR_DIM = 3, ENABLE_GOAL_TIMER = True handled by ICCGANHumanoid)
         super().__init__(*args, **kwargs)
-        self._reset_goals(torch.arange(n_envs, device=device)) # other env params will now be set by super.init
 
-    
-    def _reset_goals(self, env_ids):
-        """Reset goal positions for given environments"""
-        n = len(env_ids)
-        
-        # Sample random goal positions in a circle
-        angles = torch.rand(n, device=self.device) * 2 * np.pi
-        distances = torch.rand(n, device=self.device) * 5.0 + 2.0  # 2-7 meters
-        
-        self.goal_pos[env_ids, 0] = torch.cos(angles) * distances
-        self.goal_pos[env_ids, 1] = torch.sin(angles) * distances
-        
-        # Sample goal speed
-        self.goal_speed[env_ids] = torch.clamp(
-            torch.randn(n, device=self.device) * self.goal_sp_std + self.goal_sp_mean,
-            self.goal_sp_min, self.goal_sp_max
+        # init_dist tracks the distance to the goal at the moment it was spawned.
+        # Used by termination_check() to detect too_far condition.
+        self.init_dist = torch.zeros(self.n_envs, dtype=torch.float32, device=self.device)
+
+        # First goal assignment (after super init so root_pos is valid)
+        all_ids = torch.arange(self.n_envs, device=self.device)
+        self.reset_goal(all_ids)
+
+    # ====== Goal management ---------------------------------------------
+    def reset_goal(self, env_ids, goal_tensor=None, goal_timer=None):
+        """Sample a new navigation goal for the given envs.
+
+        Mirrors src ICCGANHumanoidTarget.reset_goal() exactly:
+          • large_angle  — uniformly random heading (sharp turn)
+          • small_angle  — current heading ± 60° (gentle turn)
+          • sharp_turn_rate controls the mix
+          • goal distance = sampled_speed × timer × step_time
+          • goal stored as absolute world (x, y) in goal_tensor[:,0:2]
+        """
+        if goal_tensor is None: goal_tensor = self.goal_tensor
+        if goal_timer  is None: goal_timer  = self.goal_timer
+
+        n         = len(env_ids)
+        all_envs  = (n == self.n_envs)
+        root_orient = self.root_orient if all_envs else self.root_orient[env_ids]
+
+        # --- Direction sampling (replicates src exactly) ---
+        small_turn  = torch.rand(n, device=self.device) > self.sharp_turn_rate
+        large_angle = torch.rand(n, dtype=torch.float32, device=self.device).mul_(2 * np.pi)
+        small_angle = torch.rand(n, dtype=torch.float32, device=self.device).sub_(0.5).mul_(2 * (np.pi / 3))
+        heading     = heading_zup(root_orient)
+        small_angle = small_angle + heading
+        theta       = torch.where(small_turn, small_angle, large_angle)
+
+        # --- Speed & timer sampling ---
+        timer = torch.randint(
+            self.goal_timer_range[0], self.goal_timer_range[1],
+            (n,), dtype=goal_timer.dtype, device=self.device
         )
-        
-        # Reset goal timer
-        if self.goal_timer is not None:
-            self.goal_timer[env_ids] = torch.randint(
-                self.goal_timer_range[0], self.goal_timer_range[1], 
-                (n,), dtype=self.goal_timer.dtype, device=self.device
+        if self.goal_sp_min == self.goal_sp_max:
+            vel = torch.full((n,), self.goal_sp_min, dtype=torch.float32, device=self.device)
+        elif self.goal_sp_std == 0:
+            vel = torch.full((n,), self.goal_sp_mean, dtype=torch.float32, device=self.device)
+        else:
+            vel = torch.nn.init.trunc_normal_(
+                torch.empty(n, dtype=torch.float32, device=self.device),
+                mean=self.goal_sp_mean, std=self.goal_sp_std,
+                a=self.goal_sp_min, b=self.goal_sp_max
             )
-    
+
+        dist = vel * timer.float() * self.step_time
+        dx   = dist * torch.cos(theta)
+        dy   = dist * torch.sin(theta)
+        root_pos = self.root_pos if all_envs else self.root_pos[env_ids]
+
+        if all_envs:
+            self.init_dist           = dist
+            goal_timer.copy_(timer)
+            goal_tensor[:, 0] = root_pos[:, 0] + dx
+            goal_tensor[:, 1] = root_pos[:, 1] + dy
+            goal_tensor[:, 2] = 0.0
+        else:
+            self.init_dist[env_ids]   = dist
+            goal_timer[env_ids]        = timer
+            goal_tensor[env_ids, 0]   = root_pos[:, 0] + dx
+            goal_tensor[env_ids, 1]   = root_pos[:, 1] + dy
+            goal_tensor[env_ids, 2]   = 0.0
+
+    # ====== Reset hooks -------------------------------------------------
     def reset_envs(self, env_ids):
-        """Reset environments and their goals"""
         super().reset_envs(env_ids)
-        self._reset_goals(env_ids)
-    
+        self.reset_goal(env_ids)
+
+    # Step: goal timer countdown → re-sample on expiry -------------------
     def step(self, actions):
-        """Step and update goal timer"""
         obs, rews, terminated, truncated, info = super().step(actions)
-        
-        # Update goal timer
         if self.goal_timer is not None:
             self.goal_timer -= 1
-            reset_envs = torch.nonzero(self.goal_timer <= 0).view(-1)
-            if len(reset_envs) > 0:
-                self._reset_goals(reset_envs)
-        
+            expired = torch.nonzero(self.goal_timer <= 0).view(-1)
+            if len(expired) > 0:
+                self.reset_goal(expired)
         return obs, rews, terminated, truncated, info
-    
-    def observe(self, env_ids=None):
-        """Observe with goal information"""
-        base_obs = super().observe(env_ids) # calls ICCGANHumanoid.observe()
-        
-        # Compute goal-relative observation
+
+    # ====== Observation: root-heading–relative goal direction + speed + dist
+    # Note: state_hist is still updated inside ICCGANHumanoid.observe().
+    # We must call that update before calling observe_iccgan_target.
+    # Override the full observe flow to keep the hist update:
+    def _observe_iccgan(self, env_ids=None):
+        """Override: append goal obs after state-hist ICCGAN obs."""
+        # base body obs (handles phase too)
+        base_obs = super()._observe_iccgan(env_ids)
+
+        # goal obs in heading-relative frame
         if env_ids is None:
-            env_ids = torch.arange(self.n_envs, device=self.device)
-        
-        # Goal position relative to root
-        root_pos = self.root_tensor[env_ids, :2]  # x, y position
-        goal_rel = self.goal_pos[env_ids] - root_pos          # raw (dx, dy)
-        dist = goal_rel.norm(dim=-1, keepdim=True).clamp(min=1e-6)
-        goal_dir = goal_rel / dist                             # unit direction (2D)
-        speed = self.goal_speed[env_ids].unsqueeze(-1)         # (n, 1)
-        
-        # concat into goal vector: [dir_x, dir_y, dist, speed] = 4D
-        goal_vec = torch.cat([goal_dir, dist, speed], dim=-1)
-        return torch.cat([base_obs, goal_vec], dim=-1)
-    
-    def reward(self):
-        """Compute goal-reaching reward"""
-        # Distance to goal
-        root_pos = self.root_tensor[:, :2]
-        dist = torch.norm(self.goal_pos - root_pos, dim=-1, keepdim=True)
-        
-        # Reward for being close to goal
-        reward = (dist < self.goal_radius).float()
-        
-        # Small penalty for distance
-        reward -= 0.01 * dist
-        
-        return reward
+            sh  = self.state_hist[-self.ob_horizon:]
+            gt  = self.goal_tensor
+            tmr = self.goal_timer
+            seq = self.ob_seq_lens
+        else:
+            sh  = self.state_hist[-self.ob_horizon:][:, env_ids]
+            gt  = self.goal_tensor[env_ids]
+            tmr = self.goal_timer[env_ids]
+            seq = self.ob_seq_lens[env_ids]
+
+        root_pos    = sh[-1, :, :3]
+        root_orient = sh[-1, :, 3:7]
+
+        dp = gt[:, :3] - root_pos
+        x, y = dp[:, 0], dp[:, 1]
+        heading_inv = -heading_zup(root_orient)
+        c, s = torch.cos(heading_inv), torch.sin(heading_inv)
+        x, y = c * x - s * y, s * x + c * y
+
+        dist = (x * x + y * y).sqrt()
+        sp   = dist * (self.fps / tmr.float().clamp(min=1))
+
+        too_close = dist < 1e-5
+        x    = torch.where(too_close, x, x / dist.clamp(min=1e-6))
+        y    = torch.where(too_close, y, y / dist.clamp(min=1e-6))
+        sp.clamp_(max=self.sp_upper_bound)
+        dist_obs = (dist / 3.0).clamp_(max=1.5)
+
+        goal_obs = torch.stack([x, y, sp, dist_obs], dim=-1)   # [n, 4]
+        return torch.cat([base_obs, goal_obs], dim=-1)
+
+    # ====== Reward: velocity-matching (src formula) ---------------------
+    def reward(self, goal_tensor=None, goal_timer=None):
+        """Velocity-matching reward identical to the IsaacGym src."""
+        if goal_tensor is None: goal_tensor = self.goal_tensor
+        if goal_timer  is None: goal_timer  = self.goal_timer
+
+        p  = self.root_pos                          # current root pos [n, 3]
+        p_ = self.state_hist[-1][:, :3]            # prev root pos (last state hist entry)
+
+        # Desired velocity vector towards goal
+        dp_  = goal_tensor[:, :3] - p_
+        dp_[:, self.UP_AXIS] = 0
+        dist_ = torch.linalg.norm(dp_, ord=2, dim=-1)
+        v_    = dp_ / (goal_timer.float().unsqueeze(-1) * self.step_time).clamp(min=1e-6)
+
+        v_mag = torch.linalg.norm(v_, ord=2, dim=-1)
+        sp_   = (dist_ / self.step_time).clamp(max=v_mag.clamp(min=self.sp_lower_bound, max=self.sp_upper_bound))
+        v_    = v_ * (sp_ / v_mag.clamp(min=1e-6)).unsqueeze(-1)
+
+        # Actual velocity
+        dp = p - p_
+        dp[:, self.UP_AXIS] = 0
+        v  = dp / self.step_time
+
+        # Gaussian-like velocity-matching reward
+        r = (v - v_).pow(2).sum(dim=-1).mul(-3.0 / sp_.pow(2).clamp(min=1e-6)).exp()
+
+        # Near-goal override: reward = 1 when within goal_radius
+        dp_now = goal_tensor[:, :3] - p
+        dp_now[:, self.UP_AXIS] = 0
+        dist_now = torch.linalg.norm(dp_now, ord=2, dim=-1)
+        self.near = dist_now < self.goal_radius
+        r[self.near] = 1.0
+
+        # Accelerate goal respawn when agent is near (viewer mode only)
+        if self.render_mode is not None and self.goal_timer is not None:
+            self.goal_timer[self.near] = self.goal_timer[self.near].clamp(max=20)
+
+        return r.unsqueeze(-1)
+
+    # ====== Extra termination: too_far ----------------------------------
+    def termination_check(self, goal_tensor=None):
+        """Fall check (from super) + too-far-from-goal check."""
+        if goal_tensor is None: goal_tensor = self.goal_tensor
+
+        fall = super().termination_check()
+
+        dp   = goal_tensor[:, :3] - self.root_pos
+        dp[:, self.UP_AXIS] = 0
+        dist = dp.pow(2).sum(dim=-1).sqrt()
+        too_far = (dist - self.init_dist) > 3.0
+
+        return torch.logical_or(fall, too_far)
+
+    # ====== Render: draw goal marker (sphere + radius ring) non-physics overlay
+    def _add_goal_geoms_to_scene(self, scn):
+        """Add goal-position visualization geoms to an MjvScene.
+
+        Draws for env-0 only (single character when render_mode is active).
+        Two elements:
+          • a red sphere at (goal_x, goal_y, 0.05) — the target point
+          • a blue ring of line-segment approximation of the goal_radius circle
+        Uses mujoco.mjv_initGeom which is available in mujoco-python >= 3.x.
+        Falls back silently if the API is unavailable or scene is full.
+        """
+        try:
+            import mujoco
+            goal_xy = self.goal_tensor[0, :2].cpu().numpy()  # env-0 goal
+
+            # -- Red sphere at goal position --
+            if scn.ngeom < scn.maxgeom:
+                g = scn.geoms[scn.ngeom]
+                mujoco.mjv_initGeom(
+                    g,
+                    mujoco.mjtGeom.mjGEOM_SPHERE,
+                    np.zeros(3),             # size placeholder (overwritten below)
+                    np.array([goal_xy[0], goal_xy[1], 0.05], dtype=np.float64),
+                    np.eye(3, dtype=np.float64).flatten(),
+                    np.array([1.0, 0.15, 0.15, 0.85], dtype=np.float32)  # rgba
+                )
+                g.size[0] = 0.12            # sphere radius
+                scn.ngeom += 1
+
+            # -- Blue radius-ring (N short line segments approximating circle) --
+            N = 16
+            r = float(self.goal_radius)
+            for i in range(N):
+                if scn.ngeom >= scn.maxgeom:
+                    break
+                a0 = 2 * np.pi * i / N
+                a1 = 2 * np.pi * (i + 1) / N
+                p0 = np.array([goal_xy[0] + r * np.cos(a0), goal_xy[1] + r * np.sin(a0), 0.03])
+                p1 = np.array([goal_xy[0] + r * np.cos(a1), goal_xy[1] + r * np.sin(a1), 0.03])
+                mid  = (p0 + p1) / 2
+                diff = p1 - p0
+                length = np.linalg.norm(diff)
+                if length < 1e-8:
+                    continue
+                g = scn.geoms[scn.ngeom]
+                mujoco.mjv_initGeom(
+                    g,
+                    mujoco.mjtGeom.mjGEOM_CAPSULE,
+                    np.zeros(3),
+                    mid,
+                    np.eye(3, dtype=np.float64).flatten(),
+                    np.array([0.2, 0.4, 1.0, 0.9], dtype=np.float32)
+                )
+                g.size[0] = 0.02        # capsule radius
+                g.size[1] = length / 2  # half-length
+                # orient capsule along diff
+                z = np.array([0., 0., 1.])
+                axis = np.cross(z, diff / length)
+                axis_norm = np.linalg.norm(axis)
+                if axis_norm > 1e-6:
+                    axis /= axis_norm
+                    angle = np.arccos(np.clip(np.dot(z, diff / length), -1, 1))
+                    # Rodrigues rotation matrix
+                    K = np.array([[0,-axis[2],axis[1]],[axis[2],0,-axis[0]],[-axis[1],axis[0],0]])
+                    R = np.eye(3) + np.sin(angle)*K + (1-np.cos(angle))*(K@K)
+                    g.mat[:] = R.flatten()
+                scn.ngeom += 1
+
+        except Exception:
+            pass  # silently skip if MuJoCo API unavailable or scene full
+
+    def render(self):
+        """Render with goal-position overlay (env-0 only)."""
+        import mujoco as _mj
+
+        if self.render_mode == "rgb_array":
+            # Build a custom scene so we can inject extra geoms
+            if not hasattr(self, '_scn'):
+                self._scn = _mj.MjvScene(self.model, maxgeom=500)
+                self._cam = _mj.MjvCamera()
+                self._vopt = _mj.MjvOption()
+                # Point camera at character (track cam or free)
+                cam_id = _mj.mj_name2id(self.model, _mj.mjtObj.mjOBJ_CAMERA, "track")
+                if cam_id >= 0:
+                    self._cam.type = _mj.mjtCamera.mjCAMERA_FIXED
+                    self._cam.fixedcamid = cam_id
+                else:
+                    self._cam.type = _mj.mjtCamera.mjCAMERA_FREE
+            _mj.mjv_updateScene(
+                self.model, self.data, self._vopt, None,
+                self._cam, _mj.mjtCatBit.mjCAT_ALL, self._scn
+            )
+            self._add_goal_geoms_to_scene(self._scn)
+            if self.renderer is None:
+                self.renderer = _mj.Renderer(self.model, width=960, height=720)
+            # render using the custom scene via context
+            ctx = self.renderer._mjr_context if hasattr(self.renderer, '_mjr_context') else None
+            if ctx is not None:
+                viewport = _mj.MjrRect(0, 0, 960, 720)
+                _mj.mjr_render(viewport, self._scn, ctx)
+                return self.renderer.render()
+            # fallback to standard render
+            return super().render()
+
+        elif self.render_mode == "human" and self.viewer is not None:
+            try:
+                # MuJoCo passive viewer exposes user_scn for custom geoms
+                with self.viewer.lock():
+                    self.viewer.user_scn.ngeom = 0
+                    self._add_goal_geoms_to_scene(self.viewer.user_scn)
+            except Exception:
+                pass
+            return super().render()
+
+        return super().render()
 
 
 from utils import heading_zup, axang2quat, rotatepoint, quatconj, quatmultiply, quatdiff_normalized
 
-def observe_iccgan_safe(state_hist: torch.Tensor, seq_len: Optional[torch.Tensor]=None,
+def observe_iccgan(state_hist: torch.Tensor, seq_len: Optional[torch.Tensor]=None,
     key_links: Optional[List[int]]=None, parent_link: Optional[int]=None,
     include_velocity: bool=True, local_pos: Optional[bool]=None, ground_height:Optional[torch.Tensor]=None
 ):
@@ -767,3 +1021,72 @@ def observe_iccgan_safe(state_hist: torch.Tensor, seq_len: Optional[torch.Tensor
     mask2 = arange < seq_len_
     ob2[mask2] = ob1[mask1]
     return ob2
+    
+def observe_iccgan_target(
+    state_hist: torch.Tensor,
+    seq_len: Optional[torch.Tensor],
+    key_links: Optional[List[int]],
+    parent_link: Optional[int],
+    goal_tensor: torch.Tensor,
+    timer: torch.Tensor,
+    sp_upper_bound: float,
+    fps: float,
+    ground_height: Optional[torch.Tensor] = None,
+) -> torch.Tensor:
+    """ICCGAN observation extended with a 4-D heading-relative goal vector.
+
+    Matches the IsaacGym src ``observe_iccgan_target`` exactly, adapted to
+    our MuJoCo tensor conventions.
+
+    Goal observation layout (last 4 dims appended after body obs):
+      • dir_x, dir_y : unit goal direction in root-heading frame
+      • speed        : required speed = dist * fps / timer  (clipped to sp_upper_bound)
+      • dist_norm    : dist / 3, clipped to [0, 1.5]
+
+    Args:
+        state_hist  : [n_hist, n_envs, n_links*13]
+        seq_len     : [n_envs] or None
+        key_links   : body indices to include (None = all)
+        parent_link : root-relative origin body (None = pelvis)
+        goal_tensor : [n_envs, 3]  world (x, y, z); z unused
+        timer       : [n_envs]  steps remaining until goal reset
+        sp_upper_bound : max speed cap
+        fps         : env fps (for speed = dist*fps/timer)
+        ground_height : optional [n_envs] ground offset
+    Returns:
+        [n_envs, body_ob_dim + 4]
+    """
+    # Base body observation (flattened over ob_horizon)
+    ob = observe_iccgan(
+        state_hist, seq_len, key_links, parent_link,
+        ground_height=ground_height
+    )  # [n_envs, ob_horizon, features]  OR  [n_envs, ob_dim] if seq_len handled inside
+
+    # Root state from last history frame
+    root_pos    = state_hist[-1, :, :3]   # [n_envs, 3]
+    root_orient = state_hist[-1, :, 3:7]  # [n_envs, 4]  xyzw
+
+    # Vector from root to goal in world frame
+    dp = goal_tensor[:, :3] - root_pos    # [n_envs, 3]
+    x  = dp[:, 0]
+    y  = dp[:, 1]
+
+    # Rotate into root-heading frame (heading = rotation around Z)
+    heading_inv = -heading_zup(root_orient)  # [n_envs]
+    c = torch.cos(heading_inv)
+    s = torch.sin(heading_inv)
+    x, y = c * x - s * y, s * x + c * y
+
+    # Distance and required speed
+    dist = (x * x + y * y).sqrt()           # [n_envs]
+    sp   = dist * (fps / timer.float().clamp(min=1.0))
+
+    # Normalise direction (avoid div-by-zero)
+    too_close = dist < 1e-5
+    x = torch.where(too_close, x, x / dist.clamp(min=1e-6))
+    y = torch.where(too_close, y, y / dist.clamp(min=1e-6))
+    sp.clamp_(max=sp_upper_bound)
+    dist_obs = (dist / 3.0).clamp_(max=1.5)
+
+    goal_ob = torch.stack([x, y, sp, dist_obs], dim=-1)  # [n_envs, 4]
+    return torch.cat([ob.flatten(start_dim=1), goal_ob], dim=-1)

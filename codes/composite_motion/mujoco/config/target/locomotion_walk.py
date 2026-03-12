@@ -4,18 +4,18 @@ env_params = dict(
     goal_reward_weight = [0.5],
 
     goal_radius = 0.5,
-    sp_lower_bound = 1.2,
-    sp_upper_bound = 1.5,
+    sp_lower_bound = 1.2,           # Minimum speed for reward calculation
+    sp_upper_bound = 1.5,           # Maximum speed for reward calculation
     goal_timer_range = (90, 150),
-    goal_sp_mean = 1,
-    goal_sp_std = 0.25,
-    goal_sp_min = 0,
-    goal_sp_max = 1.25
+    goal_sp_mean = 1,               # Target speed for navigation
+    goal_sp_std = 0.25,             # Speed variation standard deviation
+    goal_sp_min = 0,                # Speed min clipping bound
+    goal_sp_max = 1.25              # Speed max clipping bound
 )
 
 training_params = dict(
-    max_epochs = 5000,
-    save_interval = 250,
+    max_epochs = 50000,
+    save_interval = 500,
     terminate_reward = -25
 )
 

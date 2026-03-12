@@ -1,6 +1,8 @@
+import numpy as np
+
 env_cls = "ICCGANHumanoid"
 env_params = dict(
-    motion_file = "assets/motions/iccgan/kick.json"
+    motion_file = "assets/motions_binary/gym/squat.pkl"
 )
 
 training_params = dict(

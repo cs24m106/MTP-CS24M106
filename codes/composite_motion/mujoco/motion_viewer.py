@@ -33,6 +33,8 @@ class MotionViewer:
             character_model=[character_model],
             device="cpu"
         )
+        avg_fps = sum(self.ref_motion.fps) / len(self.ref_motion.fps)
+        self.fps = int(np.ceil(avg_fps))
         
         # Load MuJoCo model for visualization
         self.model = mujoco.MjModel.from_xml_path(character_model)
@@ -45,9 +47,11 @@ class MotionViewer:
         self.body_names = [mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_BODY, i) 
                           for i in range(self.model.nbody)]
         
-    def generate_preview(self, motion_idx: int = 0, output_path: str = "preview.mp4", fps: int = 30):
+    def generate_preview(self, motion_idx: int = 0, output_path: str = "preview.mp4", fps: int = None):
         """Generates an MP4 video of a specific reference motion."""
         print(f"Generating {output_path} ...", end="", flush=True)
+        if fps is None:
+            fps = self.fps
         
         # Get motion properties from tensors
         motion_len = self.ref_motion.motion_length[motion_idx].item()

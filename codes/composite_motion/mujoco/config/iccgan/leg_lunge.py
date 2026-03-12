@@ -1,6 +1,6 @@
 env_cls = "ICCGANHumanoid"
 env_params = dict(
-    motion_file = "assets/motions/iccgan/kick.json"
+    motion_file = "assets/motions_binary/gym/leg_lunge.pkl"
 )
 
 training_params = dict(

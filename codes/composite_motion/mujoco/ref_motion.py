@@ -224,7 +224,7 @@ class ReferenceMotion():
         self.motion_weight = np.array(motion_weight)
         self.motion_weight /= np.sum(self.motion_weight)
 
-        print("\nLoaded {:d} motions with a total length of {:.3f}s.\n".format(len(motions), sum(self.motion_length)))
+        print("--> Loaded {:d} motions with a total length of {:.3f}s.".format(len(motions), sum(self.motion_length)))
 
     def load_motions(self, motion_file, skeleton, controllable_links, key_links):
         motions = []
