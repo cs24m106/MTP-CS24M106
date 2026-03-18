@@ -705,14 +705,15 @@ class MujocoEnv(gym.Env):
         if env_ids is None:
             env_ids = torch.arange(self.n_envs, device=self.device)
         
+        n_links = self.model.nbody - 1 # Exclude world body 
         # Basic observation: root pos, orient, joint pos, joint vel
-        n_obs = 13 + self.model.nv * 2
+        n_obs = 13 + n_links * 2
         obs = torch.zeros((len(env_ids), n_obs), dtype=torch.float32, device=self.device)
         
         for i, env_id in enumerate(env_ids):
             obs[i, :13] = self.root_tensor[env_id]
-            obs[i, 13:13+self.model.nv] = self.joint_tensor[env_id, :, 0]
-            obs[i, 13+self.model.nv:] = self.joint_tensor[env_id, :, 1]
+            obs[i, 13:13+n_links] = self.joint_tensor[env_id, :, 0]
+            obs[i, 13+n_links:] = self.joint_tensor[env_id, :, 1]
         
         return obs
     
@@ -815,3 +816,55 @@ class MujocoEnv(gym.Env):
                 self.viewer.close()
             except Exception:
                 pass
+    
+# ====== Render utils: non-physics overlay ----------------------------------------------------
+
+    @staticmethod
+    def _mjv_make_sphere(scn, pos_xyz, radius, rgba):
+        """Append one sphere geom to an MjvScene. No-op when scene is full."""
+        if scn.ngeom >= scn.maxgeom:
+            return
+        g = scn.geoms[scn.ngeom]
+        mujoco.mjv_initGeom(
+            g, mujoco.mjtGeom.mjGEOM_SPHERE,
+            np.array([radius, 0., 0.], dtype=np.float64),
+            np.asarray(pos_xyz,  dtype=np.float64),
+            np.eye(3, dtype=np.float64).flatten(),
+            np.asarray(rgba,     dtype=np.float32),
+        )
+        scn.ngeom += 1
+ 
+    @staticmethod
+    def _mjv_make_capsule(scn, p0, p1, radius, rgba):
+        """Append one capsule geom between two 3-D world points."""
+        import mujoco
+        if scn.ngeom >= scn.maxgeom:
+            return
+        p0 = np.asarray(p0, dtype=np.float64)
+        p1 = np.asarray(p1, dtype=np.float64)
+        diff   = p1 - p0
+        length = float(np.linalg.norm(diff))
+        if length < 1e-8:
+            return
+        mid = (p0 + p1) * 0.5
+        # Build rotation matrix: capsule axis (z) → diff direction
+        z   = np.array([0., 0., 1.], dtype=np.float64)
+        d   = diff / length
+        axis = np.cross(z, d)
+        sn   = float(np.linalg.norm(axis))
+        cs   = float(np.dot(z, d))
+        if sn < 1e-6:
+            R = np.eye(3) if cs > 0 else -np.eye(3)
+        else:
+            axis /= sn
+            K = np.array([[0,-axis[2],axis[1]],[axis[2],0,-axis[0]],[-axis[1],axis[0],0]])
+            angle = np.arctan2(sn, cs)
+            R = np.eye(3) + np.sin(angle)*K + (1-np.cos(angle))*(K@K)
+        g = scn.geoms[scn.ngeom]
+        mujoco.mjv_initGeom(
+            g, mujoco.mjtGeom.mjGEOM_CAPSULE,
+            np.array([radius, length*0.5, 0.], dtype=np.float64),
+            mid, R.flatten(),
+            np.asarray(rgba, dtype=np.float32),
+        )
+        scn.ngeom += 1

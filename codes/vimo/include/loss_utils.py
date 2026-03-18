@@ -5,7 +5,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from .ddpm_utils import get_snr_weight
 
-DATA_DIR = Path.cwd() / "datasets"
+#DATA_DIR = Path.cwd() / "datasets"
+DATA_DIR = Path("D:/STUDIES/MTech/#MTP/codes/vimo") / "datasets"
 SMPL_DIR = DATA_DIR  / "SMPL"
 SMPL_MODEL = None
 SMPL_NORM_MAXABS = 4.0 # default 3, but very few clips have 3.5 ranges

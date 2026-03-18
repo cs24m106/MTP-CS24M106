@@ -816,7 +816,6 @@ class ICCGANHumanoidTarget(ICCGANHumanoid):
     # ====== Render: draw goal marker (sphere + radius ring) non-physics overlay
     def _add_goal_geoms_to_scene(self, scn):
         """Add goal-position visualization geoms to an MjvScene.
-
         Draws for env-0 only (single character when render_mode is active).
         Two elements:
           • a red sphere at (goal_x, goal_y, 0.05) — the target point
@@ -825,117 +824,410 @@ class ICCGANHumanoidTarget(ICCGANHumanoid):
         Falls back silently if the API is unavailable or scene is full.
         """
         try:
-            import mujoco
-            goal_xy = self.goal_tensor[0, :2].cpu().numpy()  # env-0 goal
-
-            # -- Red sphere at goal position --
-            if scn.ngeom < scn.maxgeom:
-                g = scn.geoms[scn.ngeom]
-                mujoco.mjv_initGeom(
-                    g,
-                    mujoco.mjtGeom.mjGEOM_SPHERE,
-                    np.zeros(3),             # size placeholder (overwritten below)
-                    np.array([goal_xy[0], goal_xy[1], 0.05], dtype=np.float64),
-                    np.eye(3, dtype=np.float64).flatten(),
-                    np.array([1.0, 0.15, 0.15, 0.85], dtype=np.float32)  # rgba
-                )
-                g.size[0] = 0.12            # sphere radius
-                scn.ngeom += 1
-
-            # -- Blue radius-ring (N short line segments approximating circle) --
+            gx, gy = self.goal_tensor[0, 0].item(), self.goal_tensor[0, 1].item()
+            # Red target sphere
+            self._mjv_make_sphere(scn,
+                [gx, gy, 0.05], radius=0.12,
+                rgba=[1.0, 0.15, 0.15, 0.85])
+            # Blue goal-radius ring (N-gon of capsules at z=0.02)
             N = 16
             r = float(self.goal_radius)
+            angles = [2 * np.pi * i / N for i in range(N + 1)]
+            pts = [[gx + r*np.cos(a), gy + r*np.sin(a), 0.02] for a in angles]
             for i in range(N):
-                if scn.ngeom >= scn.maxgeom:
-                    break
-                a0 = 2 * np.pi * i / N
-                a1 = 2 * np.pi * (i + 1) / N
-                p0 = np.array([goal_xy[0] + r * np.cos(a0), goal_xy[1] + r * np.sin(a0), 0.03])
-                p1 = np.array([goal_xy[0] + r * np.cos(a1), goal_xy[1] + r * np.sin(a1), 0.03])
-                mid  = (p0 + p1) / 2
-                diff = p1 - p0
-                length = np.linalg.norm(diff)
-                if length < 1e-8:
-                    continue
-                g = scn.geoms[scn.ngeom]
-                mujoco.mjv_initGeom(
-                    g,
-                    mujoco.mjtGeom.mjGEOM_CAPSULE,
-                    np.zeros(3),
-                    mid,
-                    np.eye(3, dtype=np.float64).flatten(),
-                    np.array([0.2, 0.4, 1.0, 0.9], dtype=np.float32)
-                )
-                g.size[0] = 0.02        # capsule radius
-                g.size[1] = length / 2  # half-length
-                # orient capsule along diff
-                z = np.array([0., 0., 1.])
-                axis = np.cross(z, diff / length)
-                axis_norm = np.linalg.norm(axis)
-                if axis_norm > 1e-6:
-                    axis /= axis_norm
-                    angle = np.arccos(np.clip(np.dot(z, diff / length), -1, 1))
-                    # Rodrigues rotation matrix
-                    K = np.array([[0,-axis[2],axis[1]],[axis[2],0,-axis[0]],[-axis[1],axis[0],0]])
-                    R = np.eye(3) + np.sin(angle)*K + (1-np.cos(angle))*(K@K)
-                    g.mat[:] = R.flatten()
-                scn.ngeom += 1
-
+                self._mjv_make_capsule(scn, pts[i], pts[i+1],
+                    radius=0.02, rgba=[0.2, 0.4, 1.0, 0.9])
         except Exception:
             pass  # silently skip if MuJoCo API unavailable or scene full
 
     def render(self):
-        """Render with goal-position overlay (env-0 only)."""
+        """Render with non-physics goal overlay (env-0 only).
+ 
+        rgb_array path
+        --------------
+        1. renderer.update_scene() fills the renderer's internal MjvScene.
+        2. We inject extra geoms directly into renderer.scene (public attr, mujoco>=3).
+        3. renderer.render() renders that (now augmented) scene — returns numpy array.
+ 
+        human path
+        ----------
+        Passive viewer composites viewer.user_scn on top of the physics scene
+        at every sync() call.  We reset and repopulate user_scn inside the
+        viewer lock just before calling super().render() (which calls sync()).
+        """
         import mujoco as _mj
-
+ 
         if self.render_mode == "rgb_array":
-            # Build a custom scene so we can inject extra geoms
-            if not hasattr(self, '_scn'):
-                self._scn = _mj.MjvScene(self.model, maxgeom=500)
-                self._cam = _mj.MjvCamera()
-                self._vopt = _mj.MjvOption()
-                # Point camera at character (track cam or free)
-                cam_id = _mj.mj_name2id(self.model, _mj.mjtObj.mjOBJ_CAMERA, "track")
-                if cam_id >= 0:
-                    self._cam.type = _mj.mjtCamera.mjCAMERA_FIXED
-                    self._cam.fixedcamid = cam_id
-                else:
-                    self._cam.type = _mj.mjtCamera.mjCAMERA_FREE
-            _mj.mjv_updateScene(
-                self.model, self.data, self._vopt, None,
-                self._cam, _mj.mjtCatBit.mjCAT_ALL, self._scn
-            )
-            self._add_goal_geoms_to_scene(self._scn)
             if self.renderer is None:
                 self.renderer = _mj.Renderer(self.model, width=960, height=720)
-            # render using the custom scene via context
-            ctx = self.renderer._mjr_context if hasattr(self.renderer, '_mjr_context') else None
-            if ctx is not None:
-                viewport = _mj.MjrRect(0, 0, 960, 720)
-                _mj.mjr_render(viewport, self._scn, ctx)
-                return self.renderer.render()
-            # fallback to standard render
-            return super().render()
-
-        elif self.render_mode == "human" and self.viewer is not None:
+            cam_id = _mj.mj_name2id(self.model, _mj.mjtObj.mjOBJ_CAMERA, "track")
+            cam_arg = "track" if cam_id >= 0 else None
+            self.renderer.update_scene(self.data, camera=cam_arg)
+            # renderer.scene is the MjvScene that update_scene just populated —
+            # inject our custom geoms into it before rendering
             try:
-                # MuJoCo passive viewer exposes user_scn for custom geoms
+                self._add_goal_geoms_to_scene(self.renderer.scene)
+            except AttributeError:
+                pass  # mujoco < 3.x: scene attr may not exist; skip overlay
+            return self.renderer.render()
+ 
+        elif self.render_mode == "human" and self.viewer is not None:
+            # Populate user_scn; viewer composites it at sync() time
+            try:
                 with self.viewer.lock():
                     self.viewer.user_scn.ngeom = 0
                     self._add_goal_geoms_to_scene(self.viewer.user_scn)
             except Exception:
                 pass
-            return super().render()
-
+            # fall through to super().render() which calls viewer.sync()
+ 
         return super().render()
 
+# =================================================================================================
+
+class ICCGANHumanoidTargetAiming(ICCGANHumanoidTarget):
+    """
+    Scope for further improvements: (extra goals based on shoot projectiles)
+    
+    No projectile in the src: the task is purely arm-alignment, NOT shooting.
+    We add optional visual-only "shot beams" when alignment is very good
+    (aiming_rew > SHOT_THRESHOLD). These are non-physics overlays rendered into
+    the MuJoCo scene; they have no effect on rewards or physics.
+ 
+    Projectile physics discussion
+    ==============================
+    Two design options (src uses neither; this is our extension):
+ 
+    Option A — Gravity-free (laser / instantaneous):
+      Draw a straight capsule from hand → target.  Simple, zero cost.
+      Works because the reference motion implies the character "fires" the moment
+      the arm is aligned, with negligible travel time vs. env step rate.
+ 
+    Option B — Ballistic (arrow / ball, affected by gravity):
+      Position: p(t) = p0 + v0·t + ½·g·t²  (g ≈ [0,0,-9.81])
+      Render as a moving sphere updated each step until it hits the ground or
+      a predetermined time-of-flight.
+    
+    Current implementation uses Option A (straight beam) as the default because 
+        (1) step_time resolution is coarse for realistic ballistics, 
+        (2) the env is imitation-learning 
+        so what matters is arm alignment, not projectile impact.
+    """
+    GOAL_DIM        = 4 + 3        # 4-D nav obs  +  3-D aiming direction obs (desired forearm orientation *relative to the direction from root to target*)
+    GOAL_TENSOR_DIM = 3 + 4        # 3-D nav target  +  4-D aiming quaternion
+    GOAL_REWARD_WEIGHT = [0.25, 0.25]  # two reward components, equal weight
+ 
+    # Links used for aiming reward/visualisation (MuJoCo body names)
+    AIMING_START_LINK_NAME = "right_lower_arm"   # forearm origin
+    AIMING_END_LINK_NAME   = "right_hand"        # forearm tip (gun barrel end)
+ 
+    # Visualisation
+    SHOT_THRESHOLD     = 0.85      # aiming_rew above this → flash shot beam
+    SHOT_BEAM_FRAMES   = 5         # how many env steps the shot beam stays visible
+
+    def __init__(self, *args, **kwargs):
+        # These will be properly resolved in create_tensors() after super().__init__
+        self.aiming_start_link = None
+        self.aiming_end_link   = None
+        # Active shot-beam visuals: list of {pos, dir, ttl} dicts (env-0 only)
+        self._shot_beams: list = []
+        super().__init__(*args, **kwargs)
+
+
+    # ------------------------------------------------------------------
+    # Tensor setup
+    # ------------------------------------------------------------------
+    def create_tensors(self):
+        super().create_tensors()
+        n_envs = self.n_envs
+ 
+        # Resolve forearm / hand body indices (adjusted for world body at 0)
+        def _link_idx(name):
+            if name in self.body_names:
+                idx = self.body_names.index(name)
+                return idx - 1 if idx > 0 else None  # -1 for world-body offset
+            print(f"[ICCGANHumanoidTargetAiming] WARNING: body '{name}' not found; aiming disabled.")
+            return None
+ 
+        self.aiming_start_link = _link_idx(self.AIMING_START_LINK_NAME)
+        self.aiming_end_link   = _link_idx(self.AIMING_END_LINK_NAME)
+ 
+        # x_dir: unit vector along world-x axis (used as reference for quaternion math)
+        self.x_dir = torch.zeros((n_envs, 3), dtype=torch.float32, device=self.device)
+        self.x_dir[:, 0] = 1.0
+        # reverse_rotation: quaternion for 180° around z (handles target directly behind)
+        self.reverse_rotation = torch.zeros((n_envs, 4), dtype=torch.float32, device=self.device)
+        self.reverse_rotation[:, self.UP_AXIS] = 1.0   # (0,0,1,0) — 180° around z
+ 
+    # ------------------------------------------------------------------
+    # Goal sampling: nav goal via parent, then fresh aiming quaternion
+    # ------------------------------------------------------------------
+    def reset_goal(self, env_ids, goal_tensor=None, goal_timer=None):
+        # Delegate navigation goal to parent (writes into [:, :3] slice view)
+        super().reset_goal(env_ids,
+            goal_tensor=self.goal_tensor[:, :3] if goal_tensor is None else goal_tensor,
+            goal_timer=goal_timer)
+        self._reset_aiming_goal(env_ids)
+ 
+    def _reset_aiming_goal(self, env_ids):
+        """Sample a random aiming quaternion for each env_id.
+ 
+        Mirrors src reset_aiming_goal():
+          elevation ∈ [−π/6, 0]  (gun tilted slightly down to up)
+          azimuth   ∈ [0, π/4]   (gun pointed slightly off-axis)
+        Stored as xyzw quaternion in goal_tensor[:, 3:7].
+        """
+        n = len(env_ids)
+        # src samples half-angles directly
+        elev = torch.rand(n, dtype=torch.float32, device=self.device).mul_(-np.pi / 6) / 2
+        azim = torch.rand(n, dtype=torch.float32, device=self.device).mul_(np.pi  / 4) / 2
+ 
+        cp, sp = torch.cos(elev), torch.sin(elev)   # pitch (elevation)
+        cy, sy = torch.cos(azim), torch.sin(azim)   # yaw   (azimuth)
+ 
+        # Quaternion (roll=0): w=cp·cy, x=−sp·sy, y=sp·cy, z=cp·sy
+        w =  cp * cy
+        x = -sp * sy
+        y =  sp * cy
+        z =  cp * sy
+ 
+        all_envs = (n == self.n_envs)
+        if all_envs:
+            self.goal_tensor[:, 3] = x
+            self.goal_tensor[:, 4] = y
+            self.goal_tensor[:, 5] = z
+            self.goal_tensor[:, 6] = w
+        else:
+            self.goal_tensor[env_ids, 3] = x
+            self.goal_tensor[env_ids, 4] = y
+            self.goal_tensor[env_ids, 5] = z
+            self.goal_tensor[env_ids, 6] = w
+ 
+    # ------------------------------------------------------------------
+    # Observation: body obs + 4-D nav goal + 3-D aiming direction
+    # ------------------------------------------------------------------
+    def _observe_iccgan(self, env_ids=None):
+        """Extends parent's _observe_iccgan with a 3-D aiming direction obs."""
+        # 4-D nav obs appended by parent
+        base_obs = super()._observe_iccgan(env_ids)   # [n, body_dim + 4]
+ 
+        # Aiming direction in root-heading frame (3 dims)
+        if env_ids is None:
+            sh  = self.state_hist[-self.ob_horizon:]
+            gt  = self.goal_tensor
+        else:
+            sh  = self.state_hist[-self.ob_horizon:][:, env_ids]
+            gt  = self.goal_tensor[env_ids]
+ 
+        aiming_ob = self._compute_aiming_obs(sh, gt)  # [n, 3]
+        return torch.cat([base_obs, aiming_ob], dim=-1)
+ 
+    def _compute_aiming_obs(self, sh, gt):
+        """Compute the 3-D aiming direction observation (heading-relative).
+ 
+        Matches observe_iccgan_target_aiming() in src env.py exactly.
+        When the character is within goal_radius the aiming obs is zeroed
+        (arm should be at rest, not aiming).
+        """
+        n = sh.size(1)
+        root_pos    = sh[-1, :, :3]
+        root_orient = sh[-1, :, 3:7]
+ 
+        # Build orient_inv (heading-only rotation, around z)
+        heading  = heading_zup(root_orient)
+        up_dir   = torch.zeros_like(root_pos); up_dir[:, self.UP_AXIS] = 1.0
+        orient_inv = axang2quat(up_dir, -heading)  # [n, 4]
+ 
+        target_tensor  = gt[:, :3]
+        aiming_tensor  = gt[:, 3:7]
+ 
+        dp   = target_tensor - root_pos
+        dp[:, self.UP_AXIS] = 0.0
+        dist = torch.linalg.norm(dp, ord=2, dim=-1, keepdim=True).clamp(min=1e-6)
+ 
+        x_dir = torch.zeros_like(dp); x_dir[:, 0] = 1.0
+        target_dir = dp / dist
+ 
+        # Quaternion that rotates x-axis to target_dir (on the ground plane)
+        q = quatdiff_normalized(x_dir, target_dir)
+        # Handle the degenerate "target is directly behind" case
+        behind = (target_dir[:, :1] < -0.99999)
+        rev    = self.reverse_rotation[:n] if n <= self.n_envs else \
+                 torch.zeros_like(q); rev[:, self.UP_AXIS] = 1.0
+        q = torch.where(behind, rev, q)
+ 
+        # aiming_dir in world frame = rotate(q ⊗ aiming_quat, x_dir)
+        aiming_dir = quatmultiply(q, aiming_tensor)        # compound rotation
+        aiming_dir = quatmultiply(orient_inv, aiming_dir)  # into heading frame
+        aiming_dir = rotatepoint(aiming_dir, x_dir)        # apply to x-axis → 3-vec [n,3]
+ 
+        # Zero out when near goal (character is close → rest pose)
+        near = (dist.squeeze(-1) < self.goal_radius)
+        aiming_dir[near] = 0.0
+ 
+        return aiming_dir   # [n, 3]
+ 
+    # ------------------------------------------------------------------
+    # Reward: nav reward (0.25) + aiming reward (0.25)
+    # ------------------------------------------------------------------
+    def reward(self, goal_tensor=None, goal_timer=None):
+        """
+        Two-component reward: navigation velocity-match + forearm alignment.
+        Aiming reward (one scalar per env):
+        • Compute aiming_dir = rotate(x_dir, q_target→dir * aiming_quat)
+        • target_hand_pos  = fore_arm_pos + arm_len * aiming_dir
+        • e = ||target_hand_pos - hand_pos|| / arm_len   (normalised alignment error)
+        • aiming_rew = exp(-2·e) -1.0 when perfectly aligned
+        • When near goal (within goal_radius), replaced by an "arm-raised" reward:
+            rest_rew = clamp(fore_arm_dir_z / 0.8, 0, 1)
+        """
+        nav_rew = super().reward(
+            goal_tensor=self.goal_tensor[:, :3],
+            goal_timer=self.goal_timer
+        )  # [n_envs, 1]
+ 
+        aiming_rew = self._aiming_reward()   # [n_envs, 1]
+ 
+        # Check if any env should "fire" (visual only, no physics effect)
+        if self.render_mode is not None:
+            self._check_and_add_shots(aiming_rew.squeeze(-1))
+ 
+        return torch.cat([nav_rew, aiming_rew], dim=-1)   # [n_envs, 2]
+ 
+    def _aiming_reward(self):
+        """Forearm alignment reward identical to src ICCGANHumanoidTargetAiming.reward()."""
+        if self.aiming_start_link is None or self.aiming_end_link is None:
+            return torch.zeros((self.n_envs, 1), dtype=torch.float32, device=self.device)
+ 
+        target_tensor = self.goal_tensor[:, :3]
+        aiming_tensor = self.goal_tensor[:, 3:7]
+ 
+        dp   = target_tensor - self.root_pos
+        dp[:, self.UP_AXIS] = 0.0
+        dist = torch.linalg.norm(dp, ord=2, dim=-1, keepdim=True).clamp(min=1e-6)
+        target_dir = dp / dist
+ 
+        q = quatdiff_normalized(self.x_dir, target_dir)
+        behind = (target_dir[:, :1] < -0.99999)
+        q = torch.where(behind, self.reverse_rotation, q)
+ 
+        aiming_dir = rotatepoint(quatmultiply(q, aiming_tensor), self.x_dir)  # [n, 3]
+ 
+        hand_pos      = self.link_pos[:, self.aiming_end_link]    # [n, 3]
+        fore_arm_pos  = self.link_pos[:, self.aiming_start_link]  # [n, 3]
+        fore_arm_vec  = hand_pos - fore_arm_pos
+        arm_len       = torch.linalg.norm(fore_arm_vec, ord=2, dim=-1, keepdim=True).clamp(min=1e-6)
+        fore_arm_dir  = fore_arm_vec / arm_len                    # normalised
+ 
+        # How far does the actual hand deviate from the desired hand position?
+        target_hand = fore_arm_pos + arm_len * aiming_dir
+        e = torch.linalg.norm(target_hand - hand_pos, ord=2, dim=-1) / arm_len.squeeze(-1)
+        aiming_rew = e.mul(-2.0).exp()   # 1.0 = perfect alignment
+ 
+        # When near nav goal: reward for raising the arm instead (rest pose)
+        rest_rew = fore_arm_dir[:, self.UP_AXIS].div(0.8).clamp(0.0, 1.0)
+        aiming_rew = torch.where(self.near, rest_rew, aiming_rew)
+ 
+        return aiming_rew.unsqueeze(-1)
+ 
+    # ------------------------------------------------------------------
+    # Termination: use only nav sub-goal (same as parent with :3 slice)
+    # ------------------------------------------------------------------
+    def termination_check(self, goal_tensor=None):
+        return super().termination_check(goal_tensor=self.goal_tensor[:, :3])
+ 
+    # ------------------------------------------------------------------
+    # Visual-only shot beams (non-physics)
+    # ------------------------------------------------------------------
+    def _check_and_add_shots(self, aiming_rew_vec):
+        """When env-0's aiming reward exceeds SHOT_THRESHOLD, add a shot beam."""
+        if self.aiming_start_link is None:
+            return
+        rew0 = aiming_rew_vec[0].item()
+        if rew0 > self.SHOT_THRESHOLD and not self.near[0].item():
+            hand_pos = self.link_pos[0, self.aiming_end_link].cpu().numpy()
+            target   = self.goal_tensor[0, :3].cpu().numpy()
+ 
+            # Beam direction = hand → target (world space)
+            diff = target - hand_pos
+            dist = float(np.linalg.norm(diff))
+            if dist > 1e-4:
+                direction = diff / dist
+                self._shot_beams.append({
+                    "origin":    hand_pos.copy(),
+                    "direction": direction,
+                    "length":    dist,
+                    "ttl":       self.SHOT_BEAM_FRAMES,
+                })
+        # Age existing beams
+        self._shot_beams = [b for b in self._shot_beams if b["ttl"] > 0]
+        for b in self._shot_beams:
+            b["ttl"] -= 1
+ 
+    def _add_goal_geoms_to_scene(self, scn):
+        """Extend parent's goal visuals with aim-line and active shot beams."""
+        # Navigation goal sphere + ring (from parent)
+        super()._add_goal_geoms_to_scene(scn)
+ 
+        if self.aiming_start_link is None:
+            return
+        if not self.near[0].item() if hasattr(self, 'near') else True:
+            try:
+                # Green aim-line: from forearm to estimated target point
+                fore_arm_pos = self.link_pos[0, self.aiming_start_link].cpu().numpy()
+                hand_pos     = self.link_pos[0, self.aiming_end_link].cpu().numpy()
+                fore_arm_vec = hand_pos - fore_arm_pos
+                arm_len      = float(np.linalg.norm(fore_arm_vec))
+ 
+                if arm_len > 1e-4 and hasattr(self, 'goal_tensor'):
+                    # Compute world-space aiming direction for env-0
+                    target_tensor = self.goal_tensor[0:1, :3]
+                    aiming_tensor = self.goal_tensor[0:1, 3:7]
+                    dp  = target_tensor - self.root_pos[0:1]
+                    dp[:, self.UP_AXIS] = 0.0
+                    dist = dp.norm(dim=-1, keepdim=True).clamp(min=1e-6)
+                    x_dir      = self.x_dir[0:1]
+                    target_dir = dp / dist
+                    q = quatdiff_normalized(x_dir, target_dir)
+                    behind = (target_dir[:, :1] < -0.99999)
+                    q = torch.where(behind, self.reverse_rotation[0:1], q)
+                    aiming_world = rotatepoint(quatmultiply(q, aiming_tensor), x_dir)
+                    aim_end = fore_arm_pos + aiming_world[0].cpu().numpy() * (arm_len * 8)
+ 
+                    # Draw green aim line (thin capsule)
+                    self._mjv_make_capsule(scn,
+                        fore_arm_pos, aim_end,
+                        radius=0.015, rgba=[0.0, 1.0, 0.2, 0.7])
+            except Exception:
+                pass
+ 
+        # Yellow shot beams (brief flash when fired)
+        for beam in self._shot_beams:
+            ttl_frac = beam["ttl"] / self.SHOT_BEAM_FRAMES
+            alpha    = float(ttl_frac) * 0.9
+            try:
+                end_pt = beam["origin"] + beam["direction"] * beam["length"]
+                self._mjv_make_capsule(scn,
+                    beam["origin"], end_pt,
+                    radius=0.025, rgba=[1.0, 0.85, 0.0, alpha])
+            except Exception:
+                pass
+ 
+    def render(self):
+        """Render with aiming overlay (inherits goal ring from parent render)."""
+        # Tick shot beams every render call when NOT also calling step()
+        # (during test, render is called every step so this is fine)
+        return super().render()
+
+# =================================================================================================
 
 from utils import heading_zup, axang2quat, rotatepoint, quatconj, quatmultiply, quatdiff_normalized
+
 
 def observe_iccgan(state_hist: torch.Tensor, seq_len: Optional[torch.Tensor]=None,
     key_links: Optional[List[int]]=None, parent_link: Optional[int]=None,
     include_velocity: bool=True, local_pos: Optional[bool]=None, ground_height:Optional[torch.Tensor]=None
-):
+) -> torch.Tensor: 
     """Safe ICCGAN observation function (same as original) with NaN handling"""
     UP_AXIS = 2
     n_hist = state_hist.size(0)
@@ -1022,6 +1314,7 @@ def observe_iccgan(state_hist: torch.Tensor, seq_len: Optional[torch.Tensor]=Non
     ob2[mask2] = ob1[mask1]
     return ob2
     
+
 def observe_iccgan_target(
     state_hist: torch.Tensor,
     seq_len: Optional[torch.Tensor],
@@ -1090,3 +1383,78 @@ def observe_iccgan_target(
 
     goal_ob = torch.stack([x, y, sp, dist_obs], dim=-1)  # [n_envs, 4]
     return torch.cat([ob.flatten(start_dim=1), goal_ob], dim=-1)
+
+
+def observe_iccgan_target_aiming(
+    state_hist:     torch.Tensor,
+    seq_len:        Optional[torch.Tensor],
+    key_links:      Optional[List[int]],
+    parent_link:    Optional[int],
+    goal_tensor:    torch.Tensor,
+    timer:          torch.Tensor,
+    sp_upper_bound: float,
+    goal_radius:    float,
+    fps:            float,
+    ground_height:  Optional[torch.Tensor] = None,
+) -> torch.Tensor:
+    """Standalone observation function for ICCGANHumanoidTargetAiming.
+ 
+    Concatenates:
+      • body obs      (from observe_iccgan)
+      • 4-D nav obs   (from observe_iccgan_target: dir_x, dir_y, speed, dist)
+      • 3-D aim obs   (aiming_dir in heading-relative frame)
+ 
+    Total = body_dim + 4 + 3 = body_dim + 7.
+ 
+    The aiming observation is the unit vector (x,y,z) the forearm is expected to
+    point toward, expressed in the root-heading frame.  When the character is
+    within goal_radius the vector is zeroed (rest pose signal).
+    """
+    UP_AXIS = 2
+ 
+    target_tensor = goal_tensor[..., :3]
+    aiming_tensor = goal_tensor[..., 3:]
+ 
+    # 4-D nav observation (body obs already included inside)
+    target_ob = observe_iccgan_target(
+        state_hist, seq_len, key_links, parent_link,
+        target_tensor, timer,
+        sp_upper_bound=sp_upper_bound, fps=fps,
+        ground_height=ground_height,
+    )  # [n, body_dim + 4]
+ 
+    root_pos    = state_hist[-1, :, :3]
+    root_orient = state_hist[-1, :, 3:7]
+ 
+    # heading-inverse rotation (around Z axis only)
+    heading    = heading_zup(root_orient)
+    up_dir     = torch.zeros_like(root_pos); up_dir[..., UP_AXIS] = 1.0
+    orient_inv = axang2quat(up_dir, -heading)  # [n, 4]
+ 
+    # direction from root to target (projected to ground plane)
+    dp   = target_tensor - root_pos
+    dp[..., UP_AXIS] = 0.0
+    dist = torch.linalg.norm(dp, ord=2, dim=-1, keepdim=True).clamp(min=1e-6)
+ 
+    x_dir = torch.zeros_like(dp); x_dir[..., 0] = 1.0
+    target_dir = dp / dist
+ 
+    # Quaternion: x-axis → target_dir
+    q = quatdiff_normalized(x_dir, target_dir)
+    # Handle 180° edge case: target exactly behind
+    reverse = torch.zeros_like(q); reverse[..., UP_AXIS] = 1.0
+    q = torch.where(target_dir[:, :1] < -0.99999, reverse, q)
+ 
+    # Rotate aiming quat into heading frame and apply to x-axis
+    aiming_dir = quatmultiply(q,          aiming_tensor)
+    aiming_dir = quatmultiply(orient_inv, aiming_dir)
+    aiming_dir = rotatepoint(aiming_dir,  x_dir)         # [n, 3]
+ 
+    # Zero when near (rest pose)
+    near = dist.squeeze(-1) < goal_radius
+    aiming_dir[near, 0] = 0.0
+    aiming_dir[near, 1] = 0.0
+    aiming_dir[near, 2] = 0.0
+ 
+    return torch.cat([target_ob, aiming_dir], dim=-1)   # [n, body_dim + 7]
+ 

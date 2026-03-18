@@ -2,6 +2,8 @@ import os, sys, time, multiprocessing
 import numpy as np
 import cv2, csv
 import torch, matplotlib
+import threading, queue, imageio
+
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0' #  Turn off oneDNN custom operations in tensorflow
 from torch.utils.tensorboard import SummaryWriter # set env before import to ignore warnings from tensorboard
 matplotlib.use('TkAgg') # Ensure GUI backend
@@ -72,7 +74,7 @@ def test(env, model, save_dir, max_episodes=10):
     human mode: runs until the viewer is closed or max_episodes is exceeded.
     Exit early at any point with ESC / 'q' (rgb_array) or by closing the viewer.
     """
-    import imageio                           # lazy import: not needed during training
+    #env.mirror = True    
     model.eval()
     env.eval()
     env.reset()
@@ -80,6 +82,31 @@ def test(env, model, save_dir, max_episodes=10):
     if env.render_mode is not None:
         save_folder = f"env_{env.render_mode}"
         os.makedirs(os.path.join(save_dir, save_folder), exist_ok=True)
+
+    # ---- Async GIF Saver Setup ----------------------------------------------
+    save_queue: queue.Queue = queue.Queue(maxsize=4)  # Buffer up to 4 episodes
+    saver_stop = threading.Event()
+    
+    def gif_saver_worker():
+        """Background thread to save GIFs without blocking simulation."""
+        while not saver_stop.is_set() or not save_queue.empty():
+            try:
+                item = save_queue.get(timeout=0.5)
+                if item is None:  # Poison pill
+                    break
+                episode_idx, frames, fps = item
+                gif_path = os.path.join(save_dir, save_folder, f"episode_{episode_idx:03d}.gif")
+                imageio.mimsave(gif_path, frames, fps=fps)
+                print(f"Saved GIF ({len(frames)} frames @ {fps} fps): {gif_path}")
+                save_queue.task_done()
+            except queue.Empty:
+                continue
+            except Exception as e:
+                print(f"Error saving GIF: {e}")
+    
+    saver_thread = threading.Thread(target=gif_saver_worker, daemon=True)
+    saver_thread.start()
+    # --------------------------------------------------------------------------
 
     episode_count  = 0
     total_steps    = 0
@@ -165,18 +192,31 @@ def test(env, model, save_dir, max_episodes=10):
 
         # ---- save GIF for completed episode (rgb_array mode) -----------------
         if env.render_mode == "rgb_array" and episode_frames and not quit_requested:
-            fps      = int(getattr(env, "fps", 30))
-            gif_path = os.path.join(save_dir, save_folder, f"episode_{episode_count:03d}.gif")
-            # imageio expects list of (H,W,3) uint8 arrays; duration = seconds per frame
-            imageio.mimsave(gif_path, episode_frames, fps=fps)
-            print(f"Saved GIF ({len(episode_frames)} frames @ {fps} fps): {gif_path}")
+            fps = int(getattr(env, "fps", 30))
+            # Queue the save job instead of blocking
+            try:
+                save_queue.put_nowait((episode_count+1, episode_frames, fps))
+            except queue.Full:
+                # If queue is full, skip this episode's GIF to avoid blocking
+                print(f"Warning: Save queue full, skipping GIF for episode {episode_count}")
+        # --------------------------------------------------------------------------
 
         episode_count += 1
         print(f"Episode {episode_count}/{max_episodes} done  ({episode_steps} steps)")
 
+    # ---- Cleanup: Wait for pending saves ------------------------------------
+    if env.render_mode == "rgb_array":
+        cv2.destroyWindow(save_folder)
+        cv2.waitKey(1)  # Allow window to close
+        print("Waiting for pending GIF saves to complete...")
+        save_queue.join()  # Wait for all queued items to be processed
+        saver_stop.set()
+        saver_thread.join(timeout=5.0)
+    # --------------------------------------------------------------------------
+
     env.close()
     print(f"Test completed: {episode_count} episodes, {total_steps} total steps")
-# ---
+#---
 
 def train(env, model, ckpt_dir, training_params, init_epoch=0):
     """Train the model using PPO"""
