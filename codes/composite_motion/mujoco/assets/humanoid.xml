@@ -24,7 +24,7 @@
     <!-- ADDED: Tracking camera for rgb_array mode: Default side-behind view -->
     <camera name="track" mode="trackcom" pos="0 -4.5 3" xyaxes="1 0 0 0 0.5 1"/>
     <!-- Matches SMPL matplotlib view (elev=15, azim=45) with cyclic G mapping -->
-    <camera name="smpl_view" mode="trackcom" pos="3.8 2.5 3.5" xyaxes="0.55 -0.84 0 -0.40 -0.27 0.88"/>
+    <camera name="smpl_view" mode="trackcom" pos="3.762 3.762 2.045" xyaxes="-0.7071 0.7071 0 -0.2536 -0.2536 0.9335"/>
 
     <body name="pelvis" pos="0 0 1" childclass="body">
       <freejoint name="root"/>
