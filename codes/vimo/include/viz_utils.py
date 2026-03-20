@@ -15,7 +15,7 @@ from matplotlib.animation import FuncAnimation, PillowWriter, FFMpegWriter
 
 def animate_3d_skeleton(joint_positions, out_path='motion.gif', 
 					fps=30, dpi=100, elev=15, azim=45,
-					create_subplot=False, subplot_interval=15):
+					create_subplot=False, subplot_interval=15, flip=False):
 	"""
 	Create animated GIF of 3D skeleton motion with XZ plane as ground (Y-axis up)
 	
@@ -29,6 +29,7 @@ def animate_3d_skeleton(joint_positions, out_path='motion.gif',
 		azim: Azimuth angle for 3D view
 		create_subplot: If True, also create subplot visualization
 		subplot_interval: Interval between frames in subplot (default: 15)
+		flip: plt(x,z,y) else: plt(z,x,y) so that y remains vertical
 	"""
 
 	if isinstance(out_path, str):
@@ -57,9 +58,8 @@ def animate_3d_skeleton(joint_positions, out_path='motion.gif',
 		# Create subplot visualization if requested
 		if create_subplot:
 			subplot_path = out_path.with_name(out_path.stem + '_frames.png')
-			create_frame_subplot(joint_positions, subplot_path, subplot_interval, 
-							elev, azim, mid_x, mid_y, mid_z, max_range, 
-							x_range, y_range, z_range)
+			create_frame_subplot(joint_positions, subplot_path, subplot_interval, flip,
+							elev, azim, mid_x, mid_y, mid_z, max_range, x_range, y_range, z_range)
 	if out_path.exists():
 		#print(f"Animation save already exists! (skipping)")
 		check_subplot()
@@ -67,24 +67,34 @@ def animate_3d_skeleton(joint_positions, out_path='motion.gif',
 	
 	def init():
 		ax.clear()
-		ax.set_xlim(mid_x - max_range/2, mid_x + max_range/2)
-		ax.set_ylim(mid_z - max_range/2, mid_z + max_range/2)
+		if flip:
+			ax.set_xlim(mid_x - max_range/2, mid_x + max_range/2)
+			ax.set_ylim(mid_z - max_range/2, mid_z + max_range/2)
+			ax.set_xlabel('X (horizontal)', fontsize=10, fontweight='bold')
+			ax.set_ylabel('Z (depth)', fontsize=10, fontweight='bold')
+		else:
+			ax.set_xlim(mid_z - max_range/2, mid_z + max_range/2)
+			ax.set_ylim(mid_x - max_range/2, mid_x + max_range/2)
+			ax.set_xlabel('Z (horizontal)', fontsize=10, fontweight='bold')
+			ax.set_ylabel('X (depth)', fontsize=10, fontweight='bold')
+		
 		ax.set_zlim(mid_y - max_range/2, mid_y + max_range/2)
-		ax.set_xlabel('X (horizontal)', fontsize=10, fontweight='bold')
-		ax.set_ylabel('Z (depth)', fontsize=10, fontweight='bold')
 		ax.set_zlabel('Y (vertical)', fontsize=10, fontweight='bold')
 		ax.view_init(elev=elev, azim=azim)
 		return []
 	
 	def update(frame):
-		ax.clear()
-		
+		ax.clear()		
 		joints = joint_positions[frame]  # (J, 3) - [X, Y, Z]
 		
 		# Reorder axes: matplotlib's Z-axis → our Y-axis (vertical)
 		# So we plot: (X, Z, Y) → (x_plot, y_plot, z_plot)
-		x_plot = joints[:, 0]  # X stays X
-		y_plot = joints[:, 2]  # Z becomes Y in plot (horizontal depth)
+		if flip:
+			x_plot = joints[:, 0]  # X stays X
+			y_plot = joints[:, 2]  # Z becomes Y in plot (horizontal depth)
+		else:
+			x_plot = joints[:, 2]  # X --> Z
+			y_plot = joints[:, 0]  # Z --> X
 		z_plot = joints[:, 1]  # Y becomes Z in plot (vertical)
 		
 		# Plot joints
@@ -98,32 +108,40 @@ def animate_3d_skeleton(joint_positions, out_path='motion.gif',
 				end = joints[connection[1]]
 				
 				# Reorder axes for line plotting
-				ax.plot([start[0], end[0]],  # X
-						[start[2], end[2]],   # Z → Y in plot
-						[start[1], end[1]],   # Y → Z in plot
-						'b-', linewidth=2, alpha=0.7)
+				if flip: # X,Z,Y
+					ax.plot([start[0], end[0]],	[start[2], end[2]],	[start[1], end[1]],	'b-', linewidth=2, alpha=0.7)
+				else: # X,Y,Z
+					ax.plot([start[2], end[2]],	[start[0], end[0]],	[start[1], end[1]],	'b-', linewidth=2, alpha=0.7)
 		
 		# Draw ground plane (XZ plane at Y=0 or minimum Y)
 		ground_y = y_range[0]  # Minimum Y value (ground level)
 		
-		# Create ground grid
-		xx, zz = np.meshgrid(
-			np.linspace(mid_x - max_range/2, mid_x + max_range/2, 10),
-			np.linspace(mid_z - max_range/2, mid_z + max_range/2, 10)
-		)
-		yy = np.ones_like(xx) * ground_y
+		if flip:
+			xx, zz = np.meshgrid(
+				np.linspace(mid_x - max_range/2, mid_x + max_range/2, 10),
+				np.linspace(mid_z - max_range/2, mid_z + max_range/2, 10)
+			)
+			yy = np.ones_like(xx) * ground_y
+			ax.plot_surface(xx, zz, yy, alpha=0.2, color='whitesmoke',
+							edgecolor='lightgray', linewidth=0.5)
+			ax.set_xlim(mid_x - max_range/2, mid_x + max_range/2)
+			ax.set_ylim(mid_z - max_range/2, mid_z + max_range/2)
+			ax.set_xlabel('X (horizontal)', fontsize=10, fontweight='bold')
+			ax.set_ylabel('Z (depth)', fontsize=10, fontweight='bold')
+		else:
+			zz, xx = np.meshgrid(
+				np.linspace(mid_z - max_range/2, mid_z + max_range/2, 10),
+				np.linspace(mid_x - max_range/2, mid_x + max_range/2, 10)
+			)
+			yy = np.ones_like(zz) * ground_y
+			ax.plot_surface(zz, xx, yy, alpha=0.2, color='whitesmoke',
+							edgecolor='lightgray', linewidth=0.5)
+			ax.set_xlim(mid_z - max_range/2, mid_z + max_range/2)
+			ax.set_ylim(mid_x - max_range/2, mid_x + max_range/2)
+			ax.set_xlabel('Z (horizontal)', fontsize=10, fontweight='bold')
+			ax.set_ylabel('X (depth)', fontsize=10, fontweight='bold')
 		
-		# Plot ground plane (reordered for visualization)
-		ax.plot_surface(xx, zz, yy, alpha=0.2, color='whitesmoke', 
-						edgecolor='lightgray', linewidth=0.5)
-		
-		# Set consistent limits (reordered)
-		ax.set_xlim(mid_x - max_range/2, mid_x + max_range/2)
-		ax.set_ylim(mid_z - max_range/2, mid_z + max_range/2)  # Z range
-		ax.set_zlim(mid_y - max_range/2, mid_y + max_range/2)  # Y range (vertical)
-		
-		ax.set_xlabel('X (horizontal)', fontsize=10, fontweight='bold')
-		ax.set_ylabel('Z (depth)', fontsize=10, fontweight='bold')
+		ax.set_zlim(mid_y - max_range/2, mid_y + max_range/2)
 		ax.set_zlabel('Y (vertical)', fontsize=10, fontweight='bold')
 		ax.set_title(f'{title} Frame {frame}/{T}', fontsize=14, fontweight='bold')
 		ax.view_init(elev=elev, azim=azim)
@@ -149,14 +167,14 @@ def animate_3d_skeleton(joint_positions, out_path='motion.gif',
 		fmt = 'GIF'
 
 	anim.save(out_path, writer=writer, dpi=dpi)
-	plt.close()
 	print(f"Animation saved as {fmt} ({T} frames at {fps} fps) @{str(out_path.relative_to(Path.cwd()))}")
 	check_subplot()
+	plt.close()
 	return out_path
 
 
-def create_frame_subplot(joint_positions, save_path, interval=15, 
-						elev=15, azim=45, mid_x=0, mid_y=0, mid_z=0, 
+def create_frame_subplot(joint_positions, save_path, interval=15, flip=False,
+						elev=15, azim=45, mid_x=0, mid_y=0, mid_z=0,
 						max_range=1, x_range=None, y_range=None, z_range=None):
 	"""
 	Create a single-row subplot showing frames at regular intervals
@@ -169,6 +187,7 @@ def create_frame_subplot(joint_positions, save_path, interval=15,
 		mid_x, mid_y, mid_z: Axis midpoints
 		max_range: Maximum range for consistent scaling
 		x_range, y_range, z_range: Original axis ranges
+		flip: plt(X,Z,Y) vs plt(Z,X,Y) with Y vertical
 	"""
 	T, J, _ = joint_positions.shape
 	
@@ -199,45 +218,59 @@ def create_frame_subplot(joint_positions, save_path, interval=15,
 		
 		joints = joint_positions[frame]  # (J, 3) - [X, Y, Z]
 		
-		# Reorder axes for plotting
-		x_plot = joints[:, 0]  # X stays X
-		y_plot = joints[:, 2]  # Z becomes Y in plot (horizontal depth)
-		z_plot = joints[:, 1]  # Y becomes Z in plot (vertical)
+		if flip:
+			x_plot = joints[:, 0]
+			y_plot = joints[:, 2]
+		else:
+			x_plot = joints[:, 2]
+			y_plot = joints[:, 0]
+		z_plot = joints[:, 1]
 		
-		# Plot joints
-		ax.scatter(x_plot, y_plot, z_plot, 
+		ax.scatter(x_plot, y_plot, z_plot,
 					c='red', s=30, alpha=0.8, marker='o')
 		
-		# Plot skeleton connections
 		for connection in smpl_skeleton:
 			if connection[0] < J and connection[1] < J:
 				start = joints[connection[0]]
 				end = joints[connection[1]]
-				
-				ax.plot([start[0], end[0]],
-						[start[2], end[2]],
-						[start[1], end[1]],
-						'b-', linewidth=1.5, alpha=0.7)
+				if flip:
+					ax.plot([start[0], end[0]],
+							[start[2], end[2]],
+							[start[1], end[1]],
+							'b-', linewidth=1.5, alpha=0.7)
+				else:
+					ax.plot([start[2], end[2]],
+							[start[0], end[0]],
+							[start[1], end[1]],
+							'b-', linewidth=1.5, alpha=0.7)
 		
-		# Draw ground plane
 		ground_y = y_range[0]
-		xx, zz = np.meshgrid(
-			np.linspace(mid_x - max_range/2, mid_x + max_range/2, 10),
-			np.linspace(mid_z - max_range/2, mid_z + max_range/2, 10)
-		)
-		yy = np.ones_like(xx) * ground_y
+		if flip:
+			xx, zz = np.meshgrid(
+				np.linspace(mid_x - max_range/2, mid_x + max_range/2, 10),
+				np.linspace(mid_z - max_range/2, mid_z + max_range/2, 10)
+			)
+			yy = np.ones_like(xx) * ground_y
+			ax.plot_surface(xx, zz, yy, alpha=0.15, color='whitesmoke',
+							edgecolor='lightgray', linewidth=0.5)
+			ax.set_xlim(mid_x - max_range/2, mid_x + max_range/2)
+			ax.set_ylim(mid_z - max_range/2, mid_z + max_range/2)
+			ax.set_xlabel('X', fontsize=8)
+			ax.set_ylabel('Z', fontsize=8)
+		else:
+			zz_g, xx_g = np.meshgrid(
+				np.linspace(mid_z - max_range/2, mid_z + max_range/2, 10),
+				np.linspace(mid_x - max_range/2, mid_x + max_range/2, 10)
+			)
+			yy = np.ones_like(zz_g) * ground_y
+			ax.plot_surface(zz_g, xx_g, yy, alpha=0.15, color='whitesmoke',
+							edgecolor='lightgray', linewidth=0.5)
+			ax.set_xlim(mid_z - max_range/2, mid_z + max_range/2)
+			ax.set_ylim(mid_x - max_range/2, mid_x + max_range/2)
+			ax.set_xlabel('Z', fontsize=8)
+			ax.set_ylabel('X', fontsize=8)
 		
-		ax.plot_surface(xx, zz, yy, alpha=0.15, color='whitesmoke', 
-						edgecolor='lightgray', linewidth=0.5)
-		
-		# Set consistent limits
-		ax.set_xlim(mid_x - max_range/2, mid_x + max_range/2)
-		ax.set_ylim(mid_z - max_range/2, mid_z + max_range/2)
 		ax.set_zlim(mid_y - max_range/2, mid_y + max_range/2)
-		
-		# Smaller labels for subplots
-		ax.set_xlabel('X', fontsize=8)
-		ax.set_ylabel('Z', fontsize=8)
 		ax.set_zlabel('Y', fontsize=8)
 		ax.set_title(f'Frame {frame}', fontsize=10, fontweight='bold')
 		ax.view_init(elev=elev, azim=azim)

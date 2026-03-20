@@ -47,8 +47,14 @@ class MotionViewer:
         self.body_names = [mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_BODY, i) 
                           for i in range(self.model.nbody)]
         
-    def generate_preview(self, motion_idx: int = 0, output_path: str = "preview.mp4", fps: int = None):
-        """Generates an MP4 video of a specific reference motion."""
+    def generate_preview(self, motion_idx: int = 0, output_path: str = "preview.mp4", fps: int = None, camera: str = "smpl_view"):
+        """Generates an MP4 video of a specific reference motion.
+        
+        Args:
+            camera: Camera name from XML. 'smpl_view' matches the SMPL
+                    matplotlib visualisation angle; 'track' is the legacy
+                    side-behind view.
+        """
         print(f"Generating {output_path} ...", end="", flush=True)
         if fps is None:
             fps = self.fps
@@ -88,7 +94,8 @@ class MotionViewer:
             mujoco.mj_forward(self.model, self.data)
             
             # 5. Render frame
-            self.renderer.update_scene(self.data, camera="track" if self.model.ncam > 0 else -1)
+            cam_id = camera if self.model.ncam > 0 else -1
+            self.renderer.update_scene(self.data, camera=cam_id)
             frame = self.renderer.render()
             frames.append(frame)
             
