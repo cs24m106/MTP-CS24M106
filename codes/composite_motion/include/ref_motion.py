@@ -8,7 +8,7 @@ import pickle
 from collections import namedtuple
 import scipy.ndimage.filters as filters
 
-from utils import quat2expmap,  quatconj, quatmultiply, slerp, quat2expmap, rotatepoint
+from .utils import quat2expmap, quatconj, quatmultiply, slerp, rotatepoint
 
 
 Skeleton = namedtuple("Skeleton",

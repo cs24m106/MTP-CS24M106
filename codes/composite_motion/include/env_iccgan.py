@@ -6,8 +6,8 @@ from typing import Dict, Tuple, Optional, List
 import torch, os
 import numpy as np
 
-from ref_motion import ReferenceMotion
-from env_mujoco import MujocoEnv, DiscriminatorConfig
+from .ref_motion import ReferenceMotion
+from .env_mujoco import MujocoEnv, DiscriminatorConfig
 
 class ICCGANHumanoid(MujocoEnv):
     """ICCGAN Humanoid environment for MuJoCo"""
@@ -1221,7 +1221,7 @@ class ICCGANHumanoidTargetAiming(ICCGANHumanoidTarget):
 
 # =================================================================================================
 
-from utils import heading_zup, axang2quat, rotatepoint, quatconj, quatmultiply, quatdiff_normalized
+from .utils import heading_zup, axang2quat, rotatepoint, quatconj, quatmultiply, quatdiff_normalized
 
 
 def observe_iccgan(state_hist: torch.Tensor, seq_len: Optional[torch.Tensor]=None,

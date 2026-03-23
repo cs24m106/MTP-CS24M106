@@ -484,9 +484,9 @@ class SMPL2GymJson:
 		output_data = {"_": stem, "fps": fps, "loop": "none", "frames": frames}
 		try:
 			self.motion_dump(output_data, str(output_path))
-			print(f"  ✅ [FK] Saved: {output_path}  ({N} frames @ {fps} Hz = {N/fps:.1f} s)")
+			print(f"  [SMPL2GYM-FK] [V] Saved: {output_path}  ({N} frames @ {fps} Hz = {N/fps:.1f} s)")
 		except Exception as e:
-			print(f"  ❌ [FK] Failed '{output_path}': {e}")
+			print(f"  [SMPL2GYM-FK] [X] Failed '{output_path}': {e}")
 
 	# ── JSON writer ──────────────────────────────────────────────────────────
 
@@ -629,8 +629,8 @@ class SMPL2GymJson:
 		}
 		try:
 			self.motion_dump(output_data, str(output_path))
-			print(f"  ✅ Saved: {output_path}  ({N} frames @ {fps} Hz = {N/fps:.1f} s)")
+			print(f"  [SMPL2GYM] [V] Saved: {output_path}  ({N} frames @ {fps} Hz = {N/fps:.1f} s)")
 		except Exception as e:
-			print(f"  ❌ Failed '{output_path}': {e}")
+			print(f"  [SMPL2GYM] [X] Failed '{output_path}': {e}")
 
 

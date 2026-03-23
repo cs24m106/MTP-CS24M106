@@ -35,7 +35,7 @@ def test_basic_imports():
         return False
     
     try:
-        from env_iccgan import MujocoEnv, ICCGANHumanoid, ICCGANHumanoidTarget, DiscriminatorConfig
+        from .include.env_iccgan import MujocoEnv, ICCGANHumanoid, ICCGANHumanoidTarget, DiscriminatorConfig
         print("  ✓ env_iccgan imported")
     except ImportError as e:
         print(f"  ✗ env_iccgan import failed: {e}")
@@ -44,21 +44,21 @@ def test_basic_imports():
         return False
     
     try:
-        from models import ACModel, Discriminator
+        from .include.models import ACModel, Discriminator
         print("  ✓ models imported")
     except ImportError as e:
         print(f"  ✗ models import failed: {e}")
         return False
     
     try:
-        from ref_motion import ReferenceMotion
+        from .include.ref_motion import ReferenceMotion
         print("  ✓ ref_motion imported")
     except ImportError as e:
         print(f"  ✗ ref_motion import failed: {e}")
         return False
     
     try:
-        from utils import heading_zup, rotatepoint, quatmultiply
+        from .include.utils import heading_zup, rotatepoint, quatmultiply
         print("  ✓ utils imported")
     except ImportError as e:
         print(f"  ✗ utils import failed: {e}")
@@ -66,7 +66,7 @@ def test_basic_imports():
     
     # Also test env_mujoco if available
     try:
-        from env_mujoco import MujocoEnv, DiscriminatorConfig
+        from .include.env_mujoco import MujocoEnv, DiscriminatorConfig
         print("  ✓ env_mujoco imported")
     except ImportError as e:
         print(f"  ⚠ env_mujoco not available: {e}")
@@ -156,7 +156,7 @@ def test_motion_loading():
     print("\n" + "=" * 60)
     print("Testing Motion Loading")
     print("=" * 60)
-    from ref_motion import ReferenceMotion
+    from .include.ref_motion import ReferenceMotion
     
     motion_file = "assets/motions/iccgan/jaunty_walk.json"
     if not os.path.exists(motion_file):
@@ -210,7 +210,7 @@ def test_motion_loading():
 def test_reference_motion_loading():
     """Test loading reference motion data"""
     print("\nTesting reference motion loading...")
-    from ref_motion import ReferenceMotion
+    from .include.ref_motion import ReferenceMotion
     
     motion_file = "assets/motions/iccgan/jaunty_walk.json"
     if not os.path.exists(motion_file):
@@ -259,7 +259,7 @@ def test_state_initialization():
     print("Testing State Initialization")
     print("=" * 60)
     try:
-        from env_mujoco import MujocoEnv, DiscriminatorConfig
+        from .include.env_mujoco import MujocoEnv, DiscriminatorConfig
         
         motion_file = "assets/motions/iccgan/jaunty_walk.json"
         if not os.path.exists(motion_file):
@@ -321,7 +321,7 @@ def test_environment_step():
     print("Testing Environment Step")
     print("=" * 60)
     try:
-        from env_mujoco import MujocoEnv
+        from .include.env_mujoco import MujocoEnv
         
         motion_file = "assets/motions/iccgan/jaunty_walk.json"
         if not os.path.exists(motion_file):
@@ -377,7 +377,7 @@ def test_environment_step():
 def test_environment_creation():
     """Test creating the environment"""
     print("\nTesting environment creation...")
-    from env_iccgan import ICCGANHumanoid, DiscriminatorConfig
+    from .include.env_iccgan import ICCGANHumanoid, DiscriminatorConfig
     
     motion_file = "assets/motions/iccgan/jaunty_walk.json"
     if not os.path.exists(motion_file):
@@ -456,7 +456,7 @@ def test_environment_creation():
 def test_target_environment():
     """Test target-based environment"""
     print("\nTesting target environment...")
-    from env_iccgan import ICCGANHumanoidTarget, DiscriminatorConfig
+    from .include.env_iccgan import ICCGANHumanoidTarget, DiscriminatorConfig
     
     motion_file = "assets/motions/clips_walk.yaml"
     if not os.path.exists(motion_file):
@@ -519,7 +519,7 @@ def test_target_environment():
 def test_model_creation():
     """Test creating the AC model"""
     print("\nTesting model creation...")
-    from models import ACModel, Discriminator
+    from .include.models import ACModel, Discriminator
     
     try:
         state_dim = 256

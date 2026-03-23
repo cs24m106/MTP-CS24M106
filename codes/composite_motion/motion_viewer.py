@@ -12,7 +12,7 @@ from typing import List, Optional, Dict
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyBboxPatch
 
-from ref_motion import ReferenceMotion
+from include.ref_motion import ReferenceMotion
 
 
 class MotionViewer:
@@ -169,14 +169,14 @@ class MotionViewer:
             self.generate_preview(i, output_path)
 
 
-def render_motions(file: str, type: str, output_dir: str = "motion_previews", character_model_override: str = None):
+def render_motions(file: str, type: str, output_dir: str = "motion_previews", char_model: str = None):
     """
     Preview motions specified in a config file or directly from motion data file
     Args:
         file: Path to config file or motion data file
         type: Type of file - 'config' or 'data'
         output_dir: Directory to save preview videos
-        character_model_override: Optional override for character model path
+        char_model: Optional override for character model path
     """
     import importlib.util
     
@@ -200,8 +200,8 @@ def render_motions(file: str, type: str, output_dir: str = "motion_previews", ch
         discriminators_config = None
         character_model = "assets/humanoid.xml"
         
-    if character_model_override:
-        character_model = character_model_override
+    if char_model:
+        character_model = char_model
     
     print(f"Character Model: {character_model}")
 
@@ -241,7 +241,7 @@ if __name__ == "__main__":
     parser.add_argument("file", type=str, help="Path to config file or motion data file")
     parser.add_argument("-t", "--type", type=str, choices=["config", "data"], default="config",
                        help="Type of file: 'config' (training config) or 'data' (motion file directly)")
-    parser.add_argument("--output", type=str, default="assets/motion_previews", 
+    parser.add_argument("--output", type=str, default="assets/motion_previews/composite", 
                        help="Output directory for previews")
     parser.add_argument("--model", type=str, default=None,
                        help="Optional path to character XML model")

@@ -53,7 +53,7 @@ class PolicySwitcher:
     
     def load_policy(self, name: str, checkpoint_path: str, device='cpu'):
         """Load a trained policy+discriminator checkpoint."""
-        from models import ACModel, Discriminator
+        from .include.models import ACModel, Discriminator
         
         if not os.path.exists(checkpoint_path):
             print(f"[PolicySwitcher] WARNING: checkpoint not found: {checkpoint_path}")
