@@ -1,9 +1,8 @@
 datasets/
 outputs/
 
+**/motion_previews/
 **/__pycache__/
-
-**/motion*/
 
 # ignore tensorboard summary writter files
 **.out**

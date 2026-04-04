@@ -1,0 +1,23 @@
+motions:
+- file: ch02/gWA_sBM_cAll_d25_mWA0_ch02.json
+  weight: null
+- file: ch02/gWA_sBM_cAll_d25_mWA1_ch02.json
+  weight: null
+- file: ch02/gWA_sBM_cAll_d25_mWA2_ch02.json
+  weight: null
+- file: ch02/gWA_sBM_cAll_d25_mWA3_ch02.json
+  weight: null
+- file: ch02/gWA_sBM_cAll_d26_mWA0_ch02.json
+  weight: null
+- file: ch02/gWA_sBM_cAll_d26_mWA4_ch02.json
+  weight: null
+- file: ch02/gWA_sBM_cAll_d26_mWA5_ch02.json
+  weight: null
+- file: ch02/gWA_sBM_cAll_d27_mWA2_ch02.json
+  weight: null
+- file: ch02/gWA_sBM_cAll_d27_mWA3_ch02.json
+  weight: null
+- file: ch02/gWA_sBM_cAll_d27_mWA5_ch02.json
+  weight: null
+- file: ch02/gWA_sFM_cAll_d25_mWA1_ch02.json
+  weight: null

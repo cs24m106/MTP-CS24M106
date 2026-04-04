@@ -1,0 +1,17 @@
+motions:
+- file: ch00/gBR_sFM_cAll_d05_mBR4_ch11.json
+  weight: null
+- file: ch00/gBR_sFM_cAll_d05_mBR5_ch12.json
+  weight: null
+- file: ch00/gBR_sFM_cAll_d06_mBR1_ch15.json
+  weight: null
+- file: ch00/gBR_sFM_cAll_d06_mBR2_ch16.json
+  weight: null
+- file: ch00/gBR_sFM_cAll_d06_mBR3_ch17.json
+  weight: null
+- file: ch00/gBR_sFM_cAll_d06_mBR4_ch18.json
+  weight: null
+- file: ch00/gBR_sFM_cAll_d06_mBR4_ch20.json
+  weight: null
+- file: ch00/gBR_sFM_cAll_d06_mBR5_ch21.json
+  weight: null

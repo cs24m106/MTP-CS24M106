@@ -1,0 +1,25 @@
+motions:
+- file: ch10/gBR_sBM_cAll_d04_mBR1_ch10.json
+  weight: null
+- file: ch10/gBR_sBM_cAll_d04_mBR2_ch10.json
+  weight: null
+- file: ch10/gBR_sBM_cAll_d04_mBR3_ch10.json
+  weight: null
+- file: ch10/gBR_sBM_cAll_d05_mBR0_ch10.json
+  weight: null
+- file: ch10/gBR_sBM_cAll_d05_mBR1_ch10.json
+  weight: null
+- file: ch10/gBR_sBM_cAll_d05_mBR4_ch10.json
+  weight: null
+- file: ch10/gBR_sBM_cAll_d05_mBR5_ch10.json
+  weight: null
+- file: ch10/gBR_sBM_cAll_d06_mBR2_ch10.json
+  weight: null
+- file: ch10/gBR_sBM_cAll_d06_mBR3_ch10.json
+  weight: null
+- file: ch10/gBR_sBM_cAll_d06_mBR4_ch10.json
+  weight: null
+- file: ch10/gBR_sBM_cAll_d06_mBR5_ch10.json
+  weight: null
+- file: ch10/gBR_sFM_cAll_d05_mBR3_ch10.json
+  weight: null

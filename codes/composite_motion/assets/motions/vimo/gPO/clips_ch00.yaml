@@ -1,0 +1,23 @@
+motions:
+- file: ch00/gPO_sFM_cAll_d11_mPO2_ch14.json
+  weight: null
+- file: ch00/gPO_sFM_cAll_d11_mPO3_ch11.json
+  weight: null
+- file: ch00/gPO_sFM_cAll_d11_mPO4_ch12.json
+  weight: null
+- file: ch00/gPO_sFM_cAll_d11_mPO5_ch13.json
+  weight: null
+- file: ch00/gPO_sFM_cAll_d12_mPO0_ch15.json
+  weight: null
+- file: ch00/gPO_sFM_cAll_d12_mPO1_ch16.json
+  weight: null
+- file: ch00/gPO_sFM_cAll_d12_mPO2_ch17.json
+  weight: null
+- file: ch00/gPO_sFM_cAll_d12_mPO3_ch18.json
+  weight: null
+- file: ch00/gPO_sFM_cAll_d12_mPO4_ch19.json
+  weight: null
+- file: ch00/gPO_sFM_cAll_d12_mPO5_ch20.json
+  weight: null
+- file: ch00/gPO_sFM_cAll_d12_mPO5_ch21.json
+  weight: null

@@ -1,0 +1,27 @@
+motions:
+- file: ch09/gLH_sBM_cAll_d16_mLH0_ch09.json
+  weight: null
+- file: ch09/gLH_sBM_cAll_d16_mLH1_ch09.json
+  weight: null
+- file: ch09/gLH_sBM_cAll_d16_mLH2_ch09.json
+  weight: null
+- file: ch09/gLH_sBM_cAll_d16_mLH3_ch09.json
+  weight: null
+- file: ch09/gLH_sBM_cAll_d17_mLH0_ch09.json
+  weight: null
+- file: ch09/gLH_sBM_cAll_d17_mLH1_ch09.json
+  weight: null
+- file: ch09/gLH_sBM_cAll_d17_mLH4_ch09.json
+  weight: null
+- file: ch09/gLH_sBM_cAll_d17_mLH5_ch09.json
+  weight: null
+- file: ch09/gLH_sBM_cAll_d18_mLH2_ch09.json
+  weight: null
+- file: ch09/gLH_sBM_cAll_d18_mLH3_ch09.json
+  weight: null
+- file: ch09/gLH_sBM_cAll_d18_mLH4_ch09.json
+  weight: null
+- file: ch09/gLH_sBM_cAll_d18_mLH5_ch09.json
+  weight: null
+- file: ch09/gLH_sFM_cAll_d17_mLH1_ch09.json
+  weight: null

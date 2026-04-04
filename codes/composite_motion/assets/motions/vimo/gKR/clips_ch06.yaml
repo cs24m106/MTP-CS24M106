@@ -1,0 +1,27 @@
+motions:
+- file: ch06/gKR_sBM_cAll_d28_mKR0_ch06.json
+  weight: null
+- file: ch06/gKR_sBM_cAll_d28_mKR1_ch06.json
+  weight: null
+- file: ch06/gKR_sBM_cAll_d28_mKR2_ch06.json
+  weight: null
+- file: ch06/gKR_sBM_cAll_d28_mKR3_ch06.json
+  weight: null
+- file: ch06/gKR_sBM_cAll_d29_mKR0_ch06.json
+  weight: null
+- file: ch06/gKR_sBM_cAll_d29_mKR1_ch06.json
+  weight: null
+- file: ch06/gKR_sBM_cAll_d29_mKR4_ch06.json
+  weight: null
+- file: ch06/gKR_sBM_cAll_d29_mKR5_ch06.json
+  weight: null
+- file: ch06/gKR_sBM_cAll_d30_mKR2_ch06.json
+  weight: null
+- file: ch06/gKR_sBM_cAll_d30_mKR3_ch06.json
+  weight: null
+- file: ch06/gKR_sBM_cAll_d30_mKR4_ch06.json
+  weight: null
+- file: ch06/gKR_sBM_cAll_d30_mKR5_ch06.json
+  weight: null
+- file: ch06/gKR_sFM_cAll_d28_mKR5_ch06.json
+  weight: null
