@@ -1,0 +1,134 @@
+\documentclass[MTech]{iittpdiss} 
+\input{structurethesis}
+
+\usepackage{titlesec}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\let\listofalgorithms\relax
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\setcounter{secnumdepth}{3}
+\setcounter{tocdepth}{3}
+
+\renewcommand{\thesection}{\Roman{section}}
+\renewcommand{\thesubsection}{\arabic{section}.\arabic{subsection}}
+\renewcommand{\thesubsubsection}{\arabic{section}.\arabic{subsection} (\roman{subsubsection})}
+
+% Centered and large section titles
+\titleformat{\section}
+  [block]
+  {\centering\bfseries\LARGE}
+  {\thesection}
+  {1.5em}
+  {}
+
+% Larger subsections
+\titleformat{\subsection}
+  {\bfseries\large}
+  {\thesubsection}
+  {1.25em}
+  {}
+
+% Subsubsections with line break and space
+\titleformat{\subsubsection}
+  [block]
+  {\slshape\bfseries\normalsize}
+  {\thesubsubsection}
+  {1em}
+  {}
+
+
+\begin{document}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% Title page
+\title{ViMo-Flow: Stable Frame-Aware Video-to-Motion \\Diffusion Model via SNR Weighting Strategies}
+\firstauthor{Logesh .V}
+\firstrollnumber{CS24M106}
+%\secondauthor{Second Author Name}
+%\secondrollnumber{Roll Number}
+%\thirdauthor{Third Author Name}
+%\thirdrollnumber{Roll Number}
+
+
+\supervisors{Chalavadi Vishnu}
+\date{\today}
+\department{COMPUTER SCIENCE AND ENGINEERING}
+
+%\nocite{*}
+\maketitle
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Declaration
+\include{FrontContents/declaration}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Certificate
+\include{FrontContents/certificate}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Acknowledgements
+%\acknowledgements
+
+%Thanks to all those who helped you during your thesis and research work.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{abstract}
+This report presents the first milestone in developing a comprehensive pipeline for generating physically plausible human motions from casual video inputs. The current work focuses on significantly enhancing the Video-to-Motion (ViMo) generation stage through the integration of advanced diffusion training methodologies. We implement a novel ViMo architecture capable of extracting high-quality 3D skeletal motions from unconstrained video footage, while incorporating two key improvements to the denoising diffusion probabilistic model (DDPM) training process: Signal-to-Noise Ratio (SNR) weighting for optimized training efficiency and a vectorized timestep approach for enhanced temporal modeling.
+
+Our enhanced diffusion framework demonstrates improved convergence properties and motion quality compared to baseline ViMo implementations, establishing a robust foundation for subsequent physics-based processing stages. The proposed system represents a critical advancement in bridging the visual-to-physical domain gap, providing high-fidelity motion data that preserves the nuanced characteristics observed in source videos while maintaining temporal coherence essential for physical simulation.
+
+Looking forward, this work serves as the cornerstone for a complete pipeline that will progress through physics-based imitation learning and conclude with an innovative policy adaptation mechanism to ensure robust transfer to dynamic simulation environments. The current implementation marks substantial progress toward enabling seamless translation of casual video content into physically valid character animations.
+\end{abstract}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Table of contents etc.
+
+\begin{singlespace}
+\vspace{4em}
+\tableofcontents
+%\addcontentsline{toc}{section}{Table of Content}
+\thispagestyle{empty}
+\makeatletter
+\let\origclearpage\clearpage
+\let\clearpage\relax
+
+\vspace{10em}
+\listoffigures
+\addcontentsline{toc}{section}{List of Figures}
+\let\clearpage\origclearpage
+\makeatother
+\end{singlespace}
+\newpage
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% The main text will follow from this point so set the page numbering to arabic from here on.
+% Note: While \include is suitable for chapters and major sections, \input is generally preferred for smaller units of content like subsections, figures, or tables that should flow seamlessly within the current page or section.
+\pagenumbering{arabic}
+
+\include{Pages/1_intro}
+\include{Pages/2_related}
+
+\input{Pages/3_overview}
+\input{Pages/4_problem}
+\input{Pages/5_framework}
+\input{Pages/6_losses}
+\input{Pages/7_apps}
+
+\include{Pages/8_exp}
+\include{Pages/9_results}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Bibliography.
+\Urlmuskip=0mu plus 1mu\relax
+\begin{singlespace}
+\bibliography{refs}
+\addcontentsline{toc}{section}{References}
+\end{singlespace}
+% List of papers
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\end{document}

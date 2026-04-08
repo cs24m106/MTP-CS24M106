@@ -102,6 +102,19 @@ reason:
 
 **NOTE:** using phase-input adds additional goal tensor to actor and critic. Thus model achitechiture itself fundamentally changes, thus it cant be used to load into model with other config without phase-inp enabled. (we can modify model interally thorugh, but lets just skip and abandon this method only for experimentations)
 
+### Vimo replications:
+
+1. Simple ICCGANHumanoid mimic:
+```
+python main.py config/vimo/gBR/ch01.py --ckpt checkpoints/gBR
+python main.py config/vimo/gHO/ch01.py --ckpt checkpoints/gHO
+python main.py config/vimo/gJS/ch02.py --ckpt checkpoints/gJS
+python main.py config/vimo/gLH/ch01.py --ckpt checkpoints/gLH
+python main.py config/vimo/gLO/ch02.py --ckpt checkpoints/gLO
+python main.py config/vimo/gMH/ch02.py --ckpt checkpoints/gMH
+python main.py config/vimo/gPO/ch01.py --ckpt checkpoints/gPO
+```
+
 ### Policy Evaluation
 
     $ python main.py <configure_file> --ckpt <checkpoint_dir> --test --render [optional]

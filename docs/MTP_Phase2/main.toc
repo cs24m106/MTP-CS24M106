@@ -1,0 +1,68 @@
+\contentsline {chapter}{ABSTRACT}{i}{chapter*.1}%
+\contentsline {section}{List of Figures}{ii}{chapter*.3}%
+\contentsline {section}{\numberline {I}Introduction}{1}{section.0.1}%
+\contentsline {paragraph}{Kinematic motion generation.}{1}{section.0.1}%
+\contentsline {paragraph}{Physics-based imitation.}{1}{section.0.1}%
+\contentsline {paragraph}{Contributions.}{2}{Item.2}%
+\contentsline {section}{\numberline {II}Related Work}{3}{section.0.2}%
+\contentsline {subsection}{\numberline {2.1}Video-to-Motion Generation}{3}{subsection.0.2.1}%
+\contentsline {subsection}{\numberline {2.2}Diffusion Training Dynamics}{3}{subsection.0.2.2}%
+\contentsline {subsection}{\numberline {2.3}Physics-Based Character Animation}{3}{subsection.0.2.3}%
+\contentsline {subsection}{\numberline {2.4}Adversarial Imitation Learning}{4}{subsection.0.2.4}%
+\contentsline {subsection}{\numberline {2.5}Composite Motion and Goal Control}{4}{subsection.0.2.5}%
+\contentsline {subsection}{\numberline {2.6}Symmetry and Phase Priors}{4}{subsection.0.2.6}%
+\contentsline {subsection}{\numberline {2.7}Policy Adaptation}{5}{subsection.0.2.7}%
+\contentsline {section}{\numberline {III}Methodology}{6}{section.0.3}%
+\contentsline {subsection}{\numberline {3.1}Overview}{6}{subsection.0.3.1}%
+\contentsline {subsection}{\numberline {3.2}Problem Statement}{6}{subsection.0.3.2}%
+\contentsline {subsubsection}{\numberline {3.2 (i)}Task Definition}{6}{subsubsection.0.3.2.1}%
+\contentsline {subsubsection}{\numberline {3.2 (ii)}Dataset}{7}{subsubsection.0.3.2.2}%
+\contentsline {subsubsection}{\numberline {3.2 (iii)}Pose Estimators}{8}{subsubsection.0.3.2.3}%
+\contentsline {subsubsection}{\numberline {3.2 (iv)}Preprocessing}{8}{subsubsection.0.3.2.4}%
+\contentsline {subsubsection}{\numberline {3.2 (v)}Physics Simulation Task}{9}{subsubsection.0.3.2.5}%
+\contentsline {subsubsection}{\numberline {3.2 (vi)}Simulation Character}{9}{subsubsection.0.3.2.6}%
+\contentsline {subsection}{\numberline {3.3}ViMo-Flow Framework}{10}{subsection.0.3.3}%
+\contentsline {subsubsection}{\numberline {3.3 (i)}Diffusion Formulation}{10}{subsubsection.0.3.3.1}%
+\contentsline {subsubsection}{\numberline {3.3 (ii)}Network Architecture}{11}{subsubsection.0.3.3.2}%
+\contentsline {subsubsection}{\numberline {3.3 (iii)}FiLM Conditioning}{13}{subsubsection.0.3.3.3}%
+\contentsline {subsubsection}{\numberline {3.3 (iv)}Sampling and Training Strategy}{13}{subsubsection.0.3.3.4}%
+\contentsline {subsection}{\numberline {3.4}Loss Functions}{14}{subsection.0.3.4}%
+\contentsline {subsubsection}{\numberline {3.4 (i)}6D Rotation Representation}{14}{subsubsection.0.3.4.1}%
+\contentsline {subsubsection}{\numberline {3.4 (ii)}Standard Regularizations}{14}{subsubsection.0.3.4.2}%
+\contentsline {subsubsection}{\numberline {3.4 (iii)}SNR Integration}{15}{subsubsection.0.3.4.3}%
+\contentsline {subsection}{\numberline {3.5}ViMo-Flow Applications}{16}{subsection.0.3.5}%
+\contentsline {subsubsection}{\numberline {3.5 (i)}3D Motion Dataset Construction}{16}{subsubsection.0.3.5.1}%
+\contentsline {subsubsection}{\numberline {3.5 (ii)}Few-Shot Dancing Stylization}{16}{subsubsection.0.3.5.2}%
+\contentsline {subsubsection}{\numberline {3.5 (iii)}Video-Guided Motion Completion}{16}{subsubsection.0.3.5.3}%
+\contentsline {subsection}{\numberline {3.6}Physics-Based Imitation Learning}{17}{subsection.0.3.6}%
+\contentsline {subsubsection}{\numberline {3.6 (i)}Motion Retargeting: SMPL to Simulation}{17}{subsubsection.0.3.6.1}%
+\contentsline {paragraph}{Coordinate system transformation.}{17}{subsubsection.0.3.6.1}%
+\contentsline {paragraph}{Height scaling.}{17}{subsubsection.0.3.6.1}%
+\contentsline {paragraph}{Floor correction.}{18}{subsubsection.0.3.6.1}%
+\contentsline {paragraph}{Bind rotations.}{18}{subsubsection.0.3.6.1}%
+\contentsline {paragraph}{Chain composition.}{18}{subsubsection.0.3.6.1}%
+\contentsline {paragraph}{Output format.}{18}{subsubsection.0.3.6.1}%
+\contentsline {subsubsection}{\numberline {3.6 (ii)}Observation and Action Spaces}{19}{subsubsection.0.3.6.2}%
+\contentsline {paragraph}{Policy observation.}{19}{subsubsection.0.3.6.2}%
+\contentsline {paragraph}{Action space.}{19}{subsubsection.0.3.6.2}%
+\contentsline {paragraph}{Discriminator observation.}{19}{subsubsection.0.3.6.2}%
+\contentsline {subsubsection}{\numberline {3.6 (iii)}Adversarial Reward Formulation}{19}{subsubsection.0.3.6.3}%
+\contentsline {paragraph}{Discriminator architecture.}{19}{subsubsection.0.3.6.3}%
+\contentsline {paragraph}{Training objective.}{20}{Item.8}%
+\contentsline {paragraph}{Reward signal.}{20}{equation.0.1}%
+\contentsline {subsubsection}{\numberline {3.6 (iv)}Composite Motion Learning}{20}{subsubsection.0.3.6.4}%
+\contentsline {paragraph}{Multi-critic value function.}{21}{subsubsection.0.3.6.4}%
+\contentsline {paragraph}{Goal-conditioned control.}{21}{subsubsection.0.3.6.4}%
+\contentsline {paragraph}{Incremental training.}{21}{subsubsection.0.3.6.4}%
+\contentsline {subsubsection}{\numberline {3.6 (v)}Policy Architecture}{21}{subsubsection.0.3.6.5}%
+\contentsline {subsubsection}{\numberline {3.6 (vi)}Training Algorithm}{22}{subsubsection.0.3.6.6}%
+\contentsline {paragraph}{Episode management.}{22}{algorithm.3}%
+\contentsline {paragraph}{Bilateral symmetry regularisation.}{22}{algorithm.3}%
+\contentsline {paragraph}{Phase-conditioned observations.}{24}{algorithm.3}%
+\contentsline {section}{\numberline {IV}Experiments}{25}{section.0.4}%
+\contentsline {paragraph}{Implementation Details}{25}{section.0.4}%
+\contentsline {paragraph}{Training Stability and Lambda Scheduling}{25}{figure.caption.9}%
+\contentsline {paragraph}{SNR Weighting Strategies}{26}{figure.caption.9}%
+\contentsline {paragraph}{Temporal Modeling with PTSS}{26}{figure.caption.10}%
+\contentsline {paragraph}{Model Architecture Ablations}{28}{figure.caption.10}%
+\contentsline {paragraph}{Convergence Monitoring and Target Metrics}{28}{figure.caption.10}%

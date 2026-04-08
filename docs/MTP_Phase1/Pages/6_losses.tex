@@ -1,0 +1,43 @@
+\subsection{Loss Functions}
+\label{sec:losses}
+
+\subsubsection{6D Rotation Representation}
+Joint rotations are encoded as 6D vectors capturing the first two columns of the orthonormal rotation matrix. A 3D rotation $\mathbf{R} \in \mathbb{R}^{3 \times 3}$ is represented as $[\mathbf{a}_1, \mathbf{a}_2] \in \mathbb{R}^6$, where $\mathbf{a}_1$ and $\mathbf{a}_2$ are orthonormal column vectors. The third column is recovered via cross product $\mathbf{a}_3 = \mathbf{a}_1 \times \mathbf{a}_2$. This representation is continuous, avoids the gimbal lock of Euler angles, and eliminates the unit-norm constraint of quaternions, making it better suited for gradient-based optimization~\cite{6drot2020}.
+
+\subsubsection{Standard Regularizations}
+Three auxiliary losses enforce physical plausibility.
+
+\textit{3D Positions Loss} penalizes discrepancy in global joint positions:
+\[
+\mathcal{L}_{\text{joints}} = \frac{1}{S}\sum_{i=1}^{S} \| \text{FK}(\mathbf{R}_0^i) - \text{FK}(\hat{\mathbf{R}}_0^i) \|_2^2,
+\]
+where $\text{FK}$ denotes forward kinematics converting rotations to joint positions.
+
+\textit{Velocity Loss} enforces temporal smoothness via finite differences:
+\[
+\mathcal{L}_{\text{vel}} = \frac{1}{S-1}\sum_{i=1}^{S-1} \| (\mathbf{R}_0^{i+1} - \mathbf{R}_0^i) - (\hat{\mathbf{R}}_0^{i+1} - \hat{\mathbf{R}}_0^i) \|_2^2,
+\]
+approximating angular velocity in 6D space.
+
+\textit{Foot Contact Loss} prevents foot sliding by masking joint velocities with predicted contact labels:
+\[
+\mathcal{L}_{\text{foot}} = \frac{1}{S-1}\sum_{i=1}^{S-1} \| (\text{FK}(\hat{\mathbf{R}}_0^{i+1}) - \text{FK}(\hat{\mathbf{R}}_0^i)) \cdot \hat{\mathbf{f}}_i \|_2^2,
+\]
+where $\hat{\mathbf{f}}_i \in \{0,1\}^4$ indicates left/right foot/toe ground contact. If $\hat{f}_i = 1$, the velocity must be near zero.
+
+Traditional methods compute $\hat{\mathbf{f}}_i$ via heuristic thresholds on foot velocity. ViMo learns $\hat{\mathbf{f}}_i$ as part of the model output without direct supervision; the only signal comes from $\mathcal{L}_{\text{foot}}$, encouraging the model to predict contact labels that minimize sliding. This self-supervised approach avoids arbitrary thresholds and adapts to the model's own motion predictions.
+
+\subsubsection{SNR Integration}
+Training directly predicts clean motion $\hat{\mathbf{m}}_0$ rather than noise. The simple diffusion loss, as well as all auxiliary losses ($\mathcal{L}_{\text{joints}}$, $\mathcal{L}_{\text{vel}}$, $\mathcal{L}_{\text{foot}}$), are reweighted by timestep-dependent SNR to balance contributions across the noise schedule. The SNR at timestep $t$ is $\text{SNR}_t = \bar{\alpha}_t / (1-\bar{\alpha}_t)$. Pure SNR weighting $w_t = \text{SNR}_t$ produces a steep cliff where most timesteps contribute near-zero gradient, yielding low sample efficiency.
+
+Our implementation adopts a min-cap strategy that automatically selects the appropriate weighting across the diffusion process:
+\[
+w_t = \min\left( \text{SNR}_t,\ \sqrt{1 - \frac{t}{T}} \right).
+\]
+This formulation provides a smooth, monotonic ceiling: at early timesteps (high noise), the sqrt decay term caps the potentially large SNR$_t$ to prevent gradient explosion; at late timesteps (low noise), SNR$_t$ becomes small and dominates, avoiding vanishing gradients. The min operation seamlessly fills the "dead zone" while preserving SNR's natural emphasis on high-noise stages where coarse motion structure is learned.
+
+The overall training objective becomes:
+\[
+\mathcal{L} = \mathbb{E}_t [ w_t \|\mathbf{m}_0 - \hat{\mathbf{m}}_0\|_2^2 ] + \lambda_1 \mathbb{E}_t [ w_t \mathcal{L}_{\text{joints}} ] + \lambda_2 \mathbb{E}_t [ w_t \mathcal{L}_{\text{vel}} ] + \lambda_3 \mathbb{E}_t [ w_t \mathcal{L}_{\text{foot}} ].
+\]
+Weights $w_t$ are normalized per batch to stabilize training. This min-cap SNR strategy maximizes sample efficiency, prevents collapse to mean poses, and accelerates convergence by emphasizing timesteps where the signal structure is most informative~\cite{minsnr2024}.

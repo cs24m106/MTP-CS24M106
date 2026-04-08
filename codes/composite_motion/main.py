@@ -7,9 +7,9 @@ import os, sys
 import importlib.util
 from collections import namedtuple
 
-import .include.env_iccgan as env
-from .include.models import ACModel, Discriminator
-from .include.helpers import test, train
+import include.env_iccgan as env
+from include.models import ACModel, Discriminator
+from include.helpers import test, train
 
 import numpy as np
 import random

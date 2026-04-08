@@ -1,0 +1,8 @@
+\section{Methodology}
+\label{sec:method}
+
+\subsection{Overview}
+\label{sec:overview}
+
+We present a novel approach to generating 3D human motions directly from casual videos, overcoming challenges posed by complex camera movements, occlusions, and the scarcity of labeled motion data. At a high level, the pipeline maps multi-view 2D pose sequences extracted from videos to temporally coherent 3D motion sequences, using a diffusion-based denoising process. This approach allows the model to synthesize diverse and realistic motions without explicit camera calibration or manual annotation. The core of the framework is a ViMo-style~\cite{vimo2024} denoiser that takes time-series 2D pose observations as input and outputs per-frame 3D motion data, including joint rotations, discrete foot-contact signals, and root trajectory. The denoiser is trained within a DDPM~\cite{ddpm2020} framework, enhanced with SNR-based loss weighting and a probabilistic, vectorized timestep sampling strategy~\cite{ptss2024}. These innovations ensure that the model learns meaningful motion structure across all noise levels and generalizes well to unseen video content.
+

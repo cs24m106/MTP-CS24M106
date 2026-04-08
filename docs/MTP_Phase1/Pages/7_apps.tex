@@ -1,0 +1,33 @@
+\subsection{Applications}
+\label{sec:applications}
+
+\subsubsection{3D Motion Dataset Construction}
+\begin{itemize}
+\setlength{\itemsep}{-0.5ex} % Reduce space between items
+\setlength{\parsep}{0ex} % Reduce space between paragraphs within an item
+    \item Processed 52 Chinese classical dance competition videos to generate 750 five-second motion clips, totaling 63 minutes of 3D motion data.~\cite{h3wb2014,amass2019,act2mo2020}
+    \item Addresses the scarcity of Chinese classical dance in existing corpora, expanding genre diversity for downstream tasks.The pipeline is scalable, enabling 5x to 50x dataset expansion by leveraging freely available video content online.
+    \item Downstream applications include music-to-motion generation, motion recognition, and motion prediction, with improved authenticity and genre coverage.
+\end{itemize}
+
+\subsubsection{Few-Shot Dancing Stylization}
+\begin{itemize}
+\setlength{\itemsep}{-0.5ex}
+\setlength{\parsep}{0ex}
+    \item Overcomes the limitation of pre-trained music-to-motion models (e.g., EDGE~\cite{edge2023}) that are constrained to predefined categories (e.g., 10 street dance styles in AIST++).
+    \item Employs zero-convolution blocks for parameter-efficient adaptation, keeping the pre-trained backbone frozen while learning style-specific residuals.
+    \item Prevents catastrophic forgetting and preserves music-alignment knowledge.
+    \item User studies show a 56–66\% win rate for zero-convolution adaptation versus 34–44\% for direct fine-tuning, confirming superior style transfer quality and fewer artifacts.
+\end{itemize}
+
+\subsubsection{Video-Guided Motion Completion}
+\begin{itemize}
+\setlength{\itemsep}{-0.5ex} % Reduce space between items
+\setlength{\parsep}{0ex} % Reduce space between paragraphs within an item
+    \item Enables three essential editing tasks~\cite{singshot2021,robmo2020}: motion in-betweening (filling intermediate frames), in-filling (completing missing segments), and blending (seamless transitions between styles). Given partial keyframes or style exemplars, masked denoising infills missing intervals while preserving constraints.~\cite{repaint2022}
+    \item Uses a binary mask $\mathbf{b}$ to designate known frames. At each reverse diffusion step, denoised estimates are blended with noised ground truth in masked regions:
+    \[
+    \hat{\mathbf{m}}_{t-1} = \mathbf{b}\odot\overline{q(\mathbf{c}_{\text{const}},t=1)} + (1-\mathbf{b})\odot\hat{\mathbf{m}}_{t-1}
+    \]
+    \item Generates natural transitions between different styles (e.g., Charlie Chaplin and Michael Jackson), demonstrating seamless style interpolation without manual keyframing.
+\end{itemize}

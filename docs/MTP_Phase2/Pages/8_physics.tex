@@ -1,0 +1,211 @@
+\subsection{Physics-Based Imitation Learning}
+\label{sec:physics}
+
+This section describes the second stage of the pipeline, which maps kinematic motion sequences from ViMo-Flow onto a physically simulated character through adversarial reinforcement learning.
+
+
+\subsubsection{Motion Retargeting: SMPL to Simulation}
+\label{sec:retarget}
+
+ViMo-Flow produces motion in the SMPL representation: 24 joints with axis-angle rotations in a Y-up coordinate frame. The MuJoCo humanoid operates in a Z-up frame with 15 bodies and quaternion orientations (Section~\ref{sec:simchar}). Motion retargeting bridges these representations through the following steps.
+
+\paragraph{Coordinate system transformation.}
+SMPL uses $(+X\!=\!\mathrm{left},\, +Y\!=\!\mathrm{up},\, +Z\!=\!\mathrm{forward})$; MuJoCo uses $(+X\!=\!\mathrm{forward},\, +Y\!=\!\mathrm{left},\, +Z\!=\!\mathrm{up})$. The change-of-basis is a cyclic permutation $(x,y,z) \mapsto (z,x,y)$, expressed as
+\[
+    \mathbf{G} = \begin{pmatrix} 0 & 0 & 1 \\ 1 & 0 & 0 \\ 0 & 1 & 0 \end{pmatrix}.
+\]
+Positions transform as $\mathbf{p}_{\mathrm{mj}} = \mathbf{G}\,\mathbf{p}_{\mathrm{smpl}}$. Rotation matrices undergo a similarity transform: $\mathbf{R}_{\mathrm{mj}} = \mathbf{G}\,\mathbf{R}_{\mathrm{smpl}}\,\mathbf{G}^\top$.
+
+\paragraph{Height scaling.}
+The SMPL and MuJoCo skeletons have different limb proportions. A global scale factor
+\[
+    s = \frac{L_{\mathrm{mj}}^{\mathrm{pelvis \to foot}}}{L_{\mathrm{smpl}}^{\mathrm{pelvis \to foot}}}
+\]
+is computed from the pelvis-to-foot-sole distance in each skeleton's rest pose (thigh + shin + foot sole offset). All translated root positions are multiplied by $s$ prior to coordinate conversion.
+
+\paragraph{Floor correction.}
+The SMPL floor level is estimated as the minimum weighted average of ankle and foot joint heights across all frames, computed via SMPL forward kinematics. Ankle and foot joints are weighted $(1/4, 3/4)$ respectively, prioritising the contact point. This offset is subtracted from the vertical component before scaling, ensuring the character's feet align with the simulation ground plane.
+
+\paragraph{Bind rotations.}
+The MuJoCo humanoid's rest-pose bone directions differ from SMPL's due to the skeleton simplification. For each body $b$ with rest-pose bone direction $\hat{\mathbf{d}}_b^{\mathrm{mj}}$ (from the XML model) and corresponding SMPL direction $\hat{\mathbf{d}}_b^{\mathrm{smpl}}$ (after applying $\mathbf{G}$), a bind rotation $\mathbf{R}_{\mathrm{bind}}^{(b)}$ satisfying
+\[
+    \mathbf{R}_{\mathrm{bind}}^{(b)}\; \hat{\mathbf{d}}_b^{\mathrm{mj}} = \hat{\mathbf{d}}_b^{\mathrm{smpl}}
+\]
+is computed via the Rodrigues formula. Given unit vectors $\hat{\mathbf{a}}$ and $\hat{\mathbf{b}}$, $\mathbf{v} = \hat{\mathbf{a}} \times \hat{\mathbf{b}}$, and $c = \hat{\mathbf{a}} \cdot \hat{\mathbf{b}}$:
+\[
+    \mathbf{R} = \mathbf{I} + [\mathbf{v}]_\times + \frac{[\mathbf{v}]_\times^2}{1 + c},
+\]
+where $[\mathbf{v}]_\times$ is the skew-symmetric matrix of $\mathbf{v}$. The corrected local rotation for body $b$ with parent $p$ is then
+\[
+    \mathbf{q}_b = \overline{\mathbf{q}_{\mathrm{bind}}^{(p)}} \otimes \mathbf{q}_b^{\mathrm{sim}} \otimes \mathbf{q}_{\mathrm{bind}}^{(b)},
+\]
+where $\overline{(\cdot)}$ denotes quaternion conjugate, $\otimes$ is Hamilton product, and $\mathbf{q}_b^{\mathrm{sim}}$ is the similarity-transformed SMPL rotation.
+
+\paragraph{Chain composition.}
+SMPL's 24-joint kinematic tree includes joints absent in the MuJoCo model (e.g., three spine segments Spine1--3 collapse into a single torso body). For a MuJoCo body whose kinematic chain spans SMPL joints $\{j_1, \ldots, j_m\}$, the composed rotation is
+\[
+    \mathbf{q}_b^{\mathrm{sim}} = \mathbf{q}_{j_1} \otimes \mathbf{q}_{j_2} \otimes \cdots \otimes \mathbf{q}_{j_m}.
+\]
+The body-to-chain mapping is: torso $\leftarrow$ \{Spine1, Spine2, Spine3\}, head $\leftarrow$ \{Neck, Head\}, upper arms $\leftarrow$ \{Collar, Shoulder\}, and all other bodies map one-to-one.
+
+\paragraph{Output format.}
+The retargeted motion is stored in DeepMimic JSON format. Each frame records the pelvis world position $\mathbf{p} \in \mathbb{R}^3$ and quaternion orientation $\mathbf{q} \in \mathbb{R}^4$ $(x,y,z,w)$, followed by local quaternion rotations for the 14 non-root bodies. Frame rate is preserved at 30\,Hz.
+
+
+\subsubsection{Observation and Action Spaces}
+\label{sec:obs_action}
+
+\paragraph{Policy observation.}
+At each timestep $t$, the policy observes a history of $H$ frames (default $H{=}4$) of root-relative body-link features. For each of the $L$ key links, the feature vector comprises the 3D position and 4D quaternion orientation relative to the root body, yielding a per-frame observation dimension of $7L$. The full observation $\mathbf{s}_t \in \mathbb{R}^{H \times 7L}$ is processed by a GRU encoder that embeds the temporal sequence into a fixed-size latent vector. Observations are normalised by a running mean-variance tracker with clipping at $\pm 5\sigma$.
+
+For goal-conditioned tasks, a goal vector $\mathbf{g}_t \in \mathbb{R}^{G}$ (encoding relative target position and heading) is concatenated to the GRU output before the MLP layers. If phase-conditioned observations are enabled, the sinusoidal encoding $(\sin 2\pi\phi_t,\, \cos 2\pi\phi_t)$ is appended to the goal slice, increasing the effective goal dimension by 2.
+
+\paragraph{Action space.}
+The action $\mathbf{a}_t \in \mathbb{R}^{28}$ specifies target positions for the 28 actuated joints. PD servo controllers compute torques
+\[
+    \boldsymbol{\tau} = k_p\,(\mathbf{a}_t - \mathbf{q}) - k_d\,\dot{\mathbf{q}},
+\]
+where $\mathbf{q}$ and $\dot{\mathbf{q}}$ are current joint positions and velocities. The gains $k_p, k_d$ are specified per-joint in the MuJoCo model definition.
+
+\paragraph{Discriminator observation.}
+Each discriminator $D_k$ observes $H_k$ consecutive frames (default $H_k = H{+}1 = 5$) of root-relative features restricted to its assigned subset of $L_k$ key links. The per-frame dimension is $7L_k$, and the full discriminator input is $\mathbf{o}_k \in \mathbb{R}^{H_k \times 7L_k}$. When $L_k = L$ (all links), the discriminator evaluates full-body motion; when $L_k < L$, it evaluates only a specific body-part group (e.g., upper body or lower body).
+
+
+\subsubsection{Adversarial Reward Formulation}
+\label{sec:adversarial}
+
+\paragraph{Discriminator architecture.}
+Each discriminator consists of:
+\begin{enumerate}
+    \item A GRU encoder (input dimension $7L_k$, hidden size 256) that processes the $H_k$-frame observation sequence.
+    \item An MLP with layers $[256 \to 256 \to 128 \to 32]$ and ReLU activations. The 32-dimensional output serves as an ensemble of scoring heads.
+\end{enumerate}
+Input observations are normalised by a per-discriminator running mean-variance tracker. Weights are initialised with orthogonal initialisation (gain $\sqrt{2}$ for hidden layers, gain 1 for the output layer).
+
+\paragraph{Training objective.}
+The discriminator is trained with hinge loss to separate reference (real) from policy-generated (fake) transitions:
+\begin{equation}
+    \mathcal{L}_D = \underbrace{\mathbb{E}_{\mathbf{o} \sim \text{ref}}\bigl[\max(0,\, 1 - D(\mathbf{o}))\bigr]}_{\text{real loss}} + \underbrace{\mathbb{E}_{\mathbf{o} \sim \pi}\bigl[\max(0,\, 1 + D(\mathbf{o}))\bigr]}_{\text{fake loss}} + \lambda_{\mathrm{gp}} \cdot \mathrm{GP},
+    \label{eq:disc_loss}
+\end{equation}
+where the gradient penalty~\cite{wgangp2017}
+\[
+    \mathrm{GP} = \mathbb{E}_{\hat{\mathbf{o}}}\bigl[\bigl(\|\nabla_{\hat{\mathbf{o}}} D(\hat{\mathbf{o}})\|_2 - 1\bigr)^2\bigr], \qquad \hat{\mathbf{o}} = \alpha\,\mathbf{o}_{\mathrm{ref}} + (1{-}\alpha)\,\mathbf{o}_{\pi},\; \alpha \sim U(0,1),
+\]
+enforces Lipschitz smoothness with $\lambda_{\mathrm{gp}} = 10$.
+
+The hinge loss bounds discriminator outputs to $[-1, 1]$: real samples are pushed toward $+1$ and fake samples toward $-1$. Once a sample is correctly classified with margin $\geq 1$, the corresponding hinge term saturates at zero, preventing the discriminator from over-training on already-separated samples. This is critical for maintaining informative reward signals throughout training.
+
+\paragraph{Reward signal.}
+The discriminator score is clipped and averaged across the 32 ensemble heads to produce a scalar reward:
+\[
+    r_t^{(k)} = \frac{1}{32}\sum_{i=1}^{32} \mathrm{clip}\bigl(D_k^{(i)}(\mathbf{o}_{t-H_k:t}),\; -1,\; 1\bigr).
+\]
+
+
+\subsubsection{Composite Motion Learning}
+\label{sec:composite}
+
+To learn composite behaviours from separate reference clips (e.g., walking from one clip, arm gestures from another), distinct discriminators are assigned to non-overlapping body-part groups. Let $\mathcal{B}_k \subset \{1, \ldots, L\}$ denote the key-link subset for discriminator $k$. Each $D_k$ is trained only on observations restricted to $\mathcal{B}_k$, and the multi-objective reward
+\[
+    r_t = \sum_{k=1}^{K} w_k\, r_t^{(k)} + \sum_{j} w_j\, r_t^{(\mathrm{task},j)}
+\]
+aggregates per-group quality signals, where $\{w_k\}$ are discriminator weights summing to $1 - \sum_j w_j$, and $r_t^{(\mathrm{task},j)}$ are optional goal-conditioned task rewards.
+
+\paragraph{Multi-critic value function.}
+When multiple reward components are present ($K + |\text{tasks}| > 1$), a multi-head critic $V^{(i)}(\mathbf{s}_t)$ provides per-component value estimates. The combined advantage for policy gradient computation is
+\[
+    A_t = \sum_{i} w_i\, A_t^{(i)}, \qquad A_t^{(i)} = \sum_{l=0}^{H-1-t}(\gamma\lambda)^l \delta_{t+l}^{(i)},
+\]
+where $\delta_t^{(i)} = r_t^{(i)} + \gamma V^{(i)}(\mathbf{s}_{t+1}) - V^{(i)}(\mathbf{s}_t)$ is the TD-error for component $i$. Value targets are normalised via DiagonalPopArt to handle the varying scales of discriminator and task rewards.
+
+\paragraph{Goal-conditioned control.}
+For locomotion tasks, a target-reaching reward steers the character toward spatial waypoints. The policy observation is augmented with a goal vector $\mathbf{g}_t = (\Delta x,\, \Delta y,\, \cos\theta,\, \sin\theta)$ encoding relative target position and heading. The goal reward
+\[
+    r_t^{\mathrm{goal}} = \exp\bigl(-\alpha \|\mathbf{p}_t - \mathbf{p}_{\mathrm{target}}\|_2\bigr)
+\]
+is added to the composite reward with a configurable weight.
+
+\paragraph{Incremental training.}
+A policy pre-trained on a base skill (e.g., locomotion) can serve as initialisation for composite tasks. The pre-trained actor-critic weights and observation normaliser provide a warm start; only the newly added discriminator branches require fresh training, accelerating convergence on composite objectives.
+
+
+\subsubsection{Policy Architecture}
+\label{sec:policy}
+
+The actor-critic model processes observations through a shared temporal encoding followed by separate policy and value heads.
+
+\begin{itemize}
+    \item \textbf{Actor:} A GRU encoder (input $7L$, hidden 256) processes the $H$-frame observation sequence. The hidden state at the last valid frame is concatenated with the goal vector $\mathbf{g}$ (if present) and passed through an MLP $(256{+}G \to 1024 \to 512)$ with ReLU6 activations. Two output heads produce the mean $\boldsymbol{\mu} \in \mathbb{R}^{28}$ and log-standard-deviation $\log\boldsymbol{\sigma} \in \mathbb{R}^{28}$. The policy is a diagonal Gaussian:
+    \[
+        \pi_\theta(\mathbf{a} \mid \mathbf{s}) = \mathcal{N}\bigl(\boldsymbol{\mu}(\mathbf{s}),\; \mathrm{diag}(\boldsymbol{\sigma}^2(\mathbf{s}))\bigr).
+    \]
+
+    \item \textbf{Critic:} A separate GRU encoder (same architecture) feeds an MLP $(256{+}G \to 1024 \to 512 \to V)$, where $V$ is the number of value heads (one per reward component). Value outputs are normalised via DiagonalPopArt~\cite{ppo2017} for stable multi-scale target tracking.
+\end{itemize}
+
+
+\subsubsection{Training Algorithm}
+\label{sec:training}
+
+Training alternates between environment rollout, discriminator update, and policy optimisation. Algorithm~\ref{alg:training} summarises the procedure.
+
+\begin{algorithm}
+\caption{Adversarial Imitation Training}
+\label{alg:training}
+\begin{algorithmic}[1]
+\Require Policy $\pi_\theta$, discriminators $\{D_k\}_{k=1}^{K}$, reference motions $\mathcal{M}$, $N$ parallel environments
+\Require Horizon $H_{\mathrm{steps}}$, PPO epochs $E$, clip ratio $\epsilon = 0.2$, discount $\gamma$, GAE $\lambda$
+
+\For{epoch $= 1, 2, \ldots$}
+    \State \textbf{// Rollout phase}
+    \For{$h = 1, \ldots, H_{\mathrm{steps}}$}
+        \State Observe $\mathbf{s}_t$, sample $\mathbf{a}_t \sim \pi_\theta(\cdot \mid \mathbf{s}_t)$
+        \State Execute $\mathbf{a}_t$ in $N$ parallel environments $\to$ $\mathbf{s}_{t+1}, r_t^{\mathrm{task}}, \mathrm{done}_t$
+        \State Store $(\mathbf{s}_t, \mathbf{a}_t, \log\pi_\theta(\mathbf{a}_t), V(\mathbf{s}_t), \mathrm{done}_t)$ and discriminator observations
+    \EndFor
+
+    \State \textbf{// Discriminator update}
+    \For{each discriminator $D_k$}
+        \State Sample mini-batches of real (reference) and fake (policy) observation windows
+        \State Update $D_k$ via $\nabla \mathcal{L}_D$ (Eq.~\ref{eq:disc_loss}) with gradient penalty
+    \EndFor
+
+    \State \textbf{// Reward computation}
+    \For{each $D_k$}
+        \State $r_t^{(k)} \gets \mathrm{clip}(D_k(\mathbf{o}_t),\, -1,\, 1).\mathrm{mean}()$
+    \EndFor
+    \State $r_t \gets \sum_k w_k r_t^{(k)} + \text{task rewards}$; \quad $r_t \gets r_{\mathrm{term}}$ if terminated
+
+    \State \textbf{// GAE advantage estimation}
+    \State $\hat{A}_t = \sum_{l=0}^{H_{\mathrm{steps}}-1-t} (\gamma\lambda)^l \delta_{t+l}$, \quad $\delta_t = r_t + \gamma V(\mathbf{s}_{t+1}) - V(\mathbf{s}_t)$
+
+    \State \textbf{// PPO policy update}
+    \For{$e = 1, \ldots, E$}
+        \State Sample mini-batch; compute $\rho_t = \pi_\theta(\mathbf{a}_t \mid \mathbf{s}_t) / \pi_{\theta_{\mathrm{old}}}(\mathbf{a}_t \mid \mathbf{s}_t)$
+        \State $L^{\mathrm{clip}} = -\min\bigl(\hat{A}_t\, \rho_t,\; \hat{A}_t\, \mathrm{clip}(\rho_t,\, 1{-}\epsilon,\, 1{+}\epsilon)\bigr)$
+        \State $L^{\mathrm{value}} = \bigl(V_\theta(\mathbf{s}_t) - R_t\bigr)^2$
+        \State $L^{\mathrm{sym}} = \frac{\lambda_{\mathrm{sym}}}{|\mathcal{P}|}\sum_{(i,j)\in\mathcal{P}} \|\sigma_j\, \mu_i - \mu_j\|^2$ \Comment{Optional}
+        \State $\theta \gets \theta - \eta\,\nabla_\theta\bigl(L^{\mathrm{clip}} + c_v\, L^{\mathrm{value}} + L^{\mathrm{sym}}\bigr)$
+    \EndFor
+\EndFor
+\end{algorithmic}
+\end{algorithm}
+
+
+\paragraph{Episode management.}
+An episode terminates when the root body height drops below a threshold $h_{\min}$ for $N_{\mathrm{grace}}$ consecutive frames, indicating a fall. Terminated transitions receive a negative reward $r_{\mathrm{term}}$ to discourage collapse. For looped reference motions, the motion index wraps cyclically, allowing episodes to span multiple motion cycles before a hard reset. The maximum number of cycles is configurable, controlling the effective episode length.
+
+\paragraph{Bilateral symmetry regularisation.}
+An optional auxiliary loss penalises asymmetry between mirrored joint pairs across the sagittal plane. Let $\mathcal{P} = \{(i, j)\}$ be the set of corresponding right-left joint index pairs (11 pairs for the 28-DOF humanoid: shoulders, elbows, hips, knees, ankles), and $\sigma_j \in \{-1, +1\}$ be a sign convention accounting for lateral-axis flips. The symmetry loss
+\[
+    \mathcal{L}_{\mathrm{sym}} = \frac{1}{|\mathcal{P}|}\sum_{(i,j) \in \mathcal{P}} \|\sigma_j\, \mu_i - \mu_j\|^2,
+\]
+where $\mu_i, \mu_j$ are the policy mean outputs for joints $i$ and $j$, is weighted by coefficient $\lambda_{\mathrm{sym}}$ and added to the PPO objective. This narrows the action search space for symmetric gaits (e.g., walking) by encouraging identical mirrored joint commands, but may hinder learning of inherently asymmetric motions.
+
+\paragraph{Phase-conditioned observations.}
+When enabled, the normalised cycle position
+\[
+    \phi_t = \frac{t \bmod T_{\mathrm{cycle}}}{T_{\mathrm{cycle}}} \in [0,\, 1)
+\]
+is encoded as $(\sin 2\pi\phi_t,\, \cos 2\pi\phi_t)$ and appended to the observation vector. This provides the policy with an explicit temporal anchor for periodic motions, improving loop quality for cyclic gaits. However, it couples the policy to a specific motion period and prevents weight sharing with phase-free policies trained on different reference clips.

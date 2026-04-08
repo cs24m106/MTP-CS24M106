@@ -1,0 +1,11 @@
+\section{Methodology}
+\label{sec:method}
+
+\subsection{Overview}
+\label{sec:overview}
+
+The pipeline consists of two sequential stages that transform casual video into physically grounded character animation.
+
+\textbf{Stage~1 --- ViMo-Flow (Sections~\ref{sec:statement}--\ref{sec:applications}).} The core of the framework is a ViMo-style~\cite{vimo2024} denoiser that takes time-series 2D pose observations as input and outputs per-frame 3D motion data, including joint rotations, discrete foot-contact signals, and root trajectory. The denoiser is trained within a DDPM~\cite{ddpm2020} framework, enhanced with SNR-based loss weighting and a probabilistic, vectorized timestep sampling strategy~\cite{minsnr2024, ptss2024}. This allows the model to synthesize diverse and realistic motions from casual video without explicit camera calibration, learning meaningful motion structure across all noise levels.
+
+\textbf{Stage~2 --- Physics-Based Imitation (Section~\ref{sec:physics}).} Kinematic outputs from Stage~1 are retargeted from the SMPL skeleton representation to a MuJoCo~\cite{mujoco2012} humanoid model through coordinate system transformations, per-joint bind rotations, and height scaling. A policy $\pi_\theta$ is trained via Proximal Policy Optimization (PPO)~\cite{ppo2017} to control the simulated humanoid under full rigid-body dynamics. Instead of hand-crafted reward functions, adversarial discriminators~\cite{iccgan2021} evaluate body-part-specific motion quality, and their scores serve as reward signals. Composite behaviours from multiple reference clips are supported through multi-objective discriminator aggregation~\cite{composite2023}.

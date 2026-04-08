@@ -1,0 +1,135 @@
+\documentclass[MTech]{iittpdiss} 
+\input{structurethesis}
+
+\usepackage{titlesec}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\let\listofalgorithms\relax
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\setcounter{secnumdepth}{3}
+\setcounter{tocdepth}{3}
+
+\renewcommand{\thesection}{\Roman{section}}
+\renewcommand{\thesubsection}{\arabic{section}.\arabic{subsection}}
+\renewcommand{\thesubsubsection}{\arabic{section}.\arabic{subsection} (\roman{subsubsection})}
+
+% Centered and large section titles
+\titleformat{\section}
+  [block]
+  {\centering\bfseries\LARGE}
+  {\thesection}
+  {1.5em}
+  {}
+
+% Larger subsections
+\titleformat{\subsection}
+  {\bfseries\large}
+  {\thesubsection}
+  {1.25em}
+  {}
+
+% Subsubsections with line break and space
+\titleformat{\subsubsection}
+  [block]
+  {\slshape\bfseries\normalsize}
+  {\thesubsubsection}
+  {1em}
+  {}
+
+
+\begin{document}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% Title page
+\title{From Pixels to Physics: Imitation and Adaptation \\of Human Motions from Casual Videos}
+\firstauthor{Logesh .V}
+\firstrollnumber{CS24M106}
+%\secondauthor{Second Author Name}
+%\secondrollnumber{Roll Number}
+%\thirdauthor{Third Author Name}
+%\thirdrollnumber{Roll Number}
+
+
+\supervisors{Chalavadi Vishnu}
+\date{\today}
+\department{COMPUTER SCIENCE AND ENGINEERING}
+
+%\nocite{*}
+\maketitle
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Declaration
+\include{FrontContents/declaration}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Certificate
+\include{FrontContents/certificate}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Acknowledgements
+%\acknowledgements
+
+%Thanks to all those who helped you during your thesis and research work.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{abstract}
+This work presents a two-stage pipeline for generating physically plausible 3D human motion from casual video. In the first stage, \emph{ViMo-Flow}---a diffusion-based video-to-motion framework---synthesizes kinematic 3D motion sequences conditioned on 2D pose trajectories extracted from unconstrained footage, enhanced by Min-SNR loss weighting~\cite{minsnr2024} and probabilistic vectorized timestep sampling~\cite{ptss2024} for improved convergence and temporal coherence~\cite{vimo2024}.
+
+The second stage, the focus of this report, addresses physics-based imitation learning. A reinforcement learning policy drives a simulated humanoid in MuJoCo~\cite{mujoco2012} to reproduce reference motions under rigid-body dynamics. An adversarial training scheme employs body-part-specific discriminators whose bounded scores replace manual reward engineering, enabling composite multi-objective motion learning through weighted reward aggregation~\cite{iccgan2021, composite2023}. Proximal Policy Optimization~\cite{ppo2017} trains the policy using these discriminator-derived rewards. A motion retargeting procedure converts SMPL skeletal data to the simulation character via coordinate system transforms, per-joint bind rotations, and height scaling. Case studies on bilateral symmetry regularisation~\cite{symlocom2018} and phase-conditioned observations demonstrate accelerated convergence on simple locomotion with trade-offs on complex, asymmetric motions.
+
+A planned third stage of policy adaptation~\cite{adaptnet2023} will address robust deployment across varying simulation conditions.
+\end{abstract}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Table of contents etc.
+
+\begin{singlespace}
+\vspace{4em}
+\tableofcontents
+%\addcontentsline{toc}{section}{Table of Content}
+\thispagestyle{empty}
+\makeatletter
+\let\origclearpage\clearpage
+\let\clearpage\relax
+
+\vspace{10em}
+\listoffigures
+\addcontentsline{toc}{section}{List of Figures}
+\let\clearpage\origclearpage
+\makeatother
+\end{singlespace}
+\newpage
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% The main text will follow from this point so set the page numbering to arabic from here on.
+% Note: While \include is suitable for chapters and major sections, \input is generally preferred for smaller units of content like subsections, figures, or tables that should flow seamlessly within the current page or section.
+\pagenumbering{arabic}
+
+\include{Pages/1_intro}
+\include{Pages/2_related}
+
+\input{Pages/3_overview}
+\input{Pages/4_problem}
+\input{Pages/5_framework}
+\input{Pages/6_losses}
+\input{Pages/7_apps}
+\input{Pages/8_physics}
+
+\include{Pages/8_exp}
+%\include{Pages/9_results}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Bibliography.
+\Urlmuskip=0mu plus 1mu\relax
+\begin{singlespace}
+\bibliography{refs}
+\addcontentsline{toc}{section}{References}
+\end{singlespace}
+% List of papers
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\end{document}

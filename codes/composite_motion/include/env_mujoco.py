@@ -153,7 +153,7 @@ class MujocoEnv(gym.Env):
         # Load the first character model
         xml_path = self.character_model[0]
         if not os.path.isabs(xml_path):
-            xml_path = os.path.join(os.path.dirname(__file__), xml_path)
+            xml_path = os.path.join(os.getcwd(), xml_path)
         
         self.model = mujoco.MjModel.from_xml_path(xml_path)
         self.model.opt.timestep = 1/self.run_speed # defualt: (1/30=fps)/2=frameskip = 16.7ms → 60Hz physics
