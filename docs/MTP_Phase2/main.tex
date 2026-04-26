@@ -40,6 +40,9 @@
   {1em}
   {}
 
+% my overrides
+\setstretch{1.25} % reduce para line spacing
+\setlist{itemsep=0.1em} % reduce space between items
 
 \begin{document}
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -78,11 +81,7 @@
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \begin{abstract}
-This work presents a two-stage pipeline for generating physically plausible 3D human motion from casual video. In the first stage, \emph{ViMo-Flow}---a diffusion-based video-to-motion framework---synthesizes kinematic 3D motion sequences conditioned on 2D pose trajectories extracted from unconstrained footage, enhanced by Min-SNR loss weighting~\cite{minsnr2024} and probabilistic vectorized timestep sampling~\cite{ptss2024} for improved convergence and temporal coherence~\cite{vimo2024}.
-
-The second stage, the focus of this report, addresses physics-based imitation learning. A reinforcement learning policy drives a simulated humanoid in MuJoCo~\cite{mujoco2012} to reproduce reference motions under rigid-body dynamics. An adversarial training scheme employs body-part-specific discriminators whose bounded scores replace manual reward engineering, enabling composite multi-objective motion learning through weighted reward aggregation~\cite{iccgan2021, composite2023}. Proximal Policy Optimization~\cite{ppo2017} trains the policy using these discriminator-derived rewards. A motion retargeting procedure converts SMPL skeletal data to the simulation character via coordinate system transforms, per-joint bind rotations, and height scaling. Case studies on bilateral symmetry regularisation~\cite{symlocom2018} and phase-conditioned observations demonstrate accelerated convergence on simple locomotion with trade-offs on complex, asymmetric motions.
-
-A planned third stage of policy adaptation~\cite{adaptnet2023} will address robust deployment across varying simulation conditions.
+Generating physically plausible three-dimensional human motion from casual video footage represents a key challenge at the intersection of computer vision, graphics, and machine learning. While kinematic motion generation methods produce visually reasonable poses, they violate physical constraints such as ground contact, torque limits, and momentum conservation, rendering them unsuitable for interactive applications. This research addressed bridging the gap between video-driven kinematic motion synthesis and physics-based character animation through a novel two-stage pipeline. The purpose was to develop an end-to-end system capable of converting unconstrained casual video into physically valid simulated humanoid behaviors without requiring hand-crafted reward engineering or pre-composed reference datasets. The methodology combined DDPM-based generators for video-to-motion synthesis with adversarial RL for physics-based imitation. A modified ViMo-Flow architecture extracted three-dimensional skeletal motions from two-dimensional pose trajectories using Min-SNR weighted loss functions and vectorized timestep sampling strategies. The kinematic outputs were then retargeted to a simulated humanoid in MuJoCo through coordinate transformation, bind rotation estimation, and proportional height scaling. An ensemble of body-part-specific discriminators provided reward signals to a PPO-trained control policy, eliminating the need for manual reward design through a composite reward formulation based on discriminator logits with learnable aggregation weights. It also examined bilateral symmetry regularisation and phase-conditioned observations as auxiliary training mechanisms. Results demonstrated successful imitation of diverse locomotion and gesture behaviors from decoupled motion sources, with the multi-discriminator approach achieving robust performance without explicit target pose tracking or phase-based synchronization. Trained policies exhibited stable control under moderate perturbations and supported runtime policy switching through discriminator feasibility checks. This work established the algorithmic foundations for composite multi-objective motion control and identified policy adaptation under domain variation as the critical next step toward deployable simulation-ready character animation systems.
 \end{abstract}
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Table of contents etc.
@@ -99,11 +98,18 @@ A planned third stage of policy adaptation~\cite{adaptnet2023} will address robu
 \vspace{10em}
 \listoffigures
 \addcontentsline{toc}{section}{List of Figures}
+\listoftables
+\addcontentsline{toc}{section}{List of Tables}
 \let\clearpage\origclearpage
 \makeatother
 \end{singlespace}
 \newpage
 
+%Glossary
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Abbreviations
+\include{FrontContents/abbreviations}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % The main text will follow from this point so set the page numbering to arabic from here on.
@@ -117,11 +123,9 @@ A planned third stage of policy adaptation~\cite{adaptnet2023} will address robu
 \input{Pages/4_problem}
 \input{Pages/5_framework}
 \input{Pages/6_losses}
-\input{Pages/7_apps}
-\input{Pages/8_physics}
 
-\include{Pages/8_exp}
-%\include{Pages/9_results}
+\include{Pages/7_exp}
+\include{Pages/8_results}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Bibliography.
@@ -130,6 +134,13 @@ A planned third stage of policy adaptation~\cite{adaptnet2023} will address robu
 \bibliography{refs}
 \addcontentsline{toc}{section}{References}
 \end{singlespace}
-% List of papers
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Appendix
+\newpage
+\appendix
+\renewcommand{\thesection}{\Alph{section}}
+\addcontentsline{toc}{section}{Appendix}
+\include{Pages/9_apendix}
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \end{document}

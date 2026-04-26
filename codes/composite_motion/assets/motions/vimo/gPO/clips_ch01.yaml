@@ -13,15 +13,15 @@ motions:
   weight: null
 - file: ch01/gPO_sBM_cAll_d11_mPO4_ch01.json
   weight: null
-- file: ch01/gPO_sBM_cAll_d11_mPO5_ch01.json
-  weight: null
-- file: ch01/gPO_sBM_cAll_d12_mPO2_ch01.json
-  weight: null
-- file: ch01/gPO_sBM_cAll_d12_mPO3_ch01.json
-  weight: null
-- file: ch01/gPO_sBM_cAll_d12_mPO4_ch01.json
-  weight: null
-- file: ch01/gPO_sBM_cAll_d12_mPO5_ch01.json
-  weight: null
-- file: ch01/gPO_sFM_cAll_d10_mPO0_ch01.json
-  weight: null
+# - file: ch01/gPO_sBM_cAll_d11_mPO5_ch01.json
+#   weight: null
+# - file: ch01/gPO_sBM_cAll_d12_mPO2_ch01.json
+#   weight: null
+# - file: ch01/gPO_sBM_cAll_d12_mPO3_ch01.json
+#   weight: null
+# - file: ch01/gPO_sBM_cAll_d12_mPO4_ch01.json
+#   weight: null
+# - file: ch01/gPO_sBM_cAll_d12_mPO5_ch01.json
+#   weight: null
+# - file: ch01/gPO_sFM_cAll_d10_mPO0_ch01.json
+#   weight: null

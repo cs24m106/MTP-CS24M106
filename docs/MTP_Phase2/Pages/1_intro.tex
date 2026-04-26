@@ -1,38 +1,53 @@
 \section{Introduction}
 \label{sec:intro}
 
-This work presents an end-to-end pipeline for synthesizing physically plausible 3D human motion from casual video. The system operates in two stages: (i)~a diffusion-based generative model, \emph{ViMo-Flow}, produces kinematic 3D motion sequences conditioned on 2D pose trajectories extracted from unconstrained footage; (ii)~an adversarial reinforcement learning framework trains a control policy to reproduce these motions on a physically simulated humanoid, enforcing rigid-body dynamics, contact constraints, and torque limits.
+Realistic 3D human motion forms the foundation of compelling virtual character animation. As portable devices and immersive applications accelerate demand for scalable content creation, generating adaptive motions from casual video remains challenging. Recent video-to-motion methods synthesize diverse 3D motions directly from unconstrained footage despite camera motion and occlusion, leveraging abundant online content to produce contextually consistent results~\cite{vimo2024}.
 
-\paragraph{Kinematic motion generation.}
-Data-driven motion synthesis methods~\cite{motiondiffuse2022, edge2023} are constrained by the limited stylistic diversity of curated 3D corpora such as AMASS~\cite{amass2019} and AIST++~\cite{aist2021}. Regression-based 3D lifting~\cite{motionbert2023, glamr2022} further requires accurate camera calibration, which casual footage cannot provide. ViMo-Flow circumvents both limitations. Given a 2D pose sequence $\mathbf{p} \in \mathbb{R}^{S \times J \times 3}$ from video, the model iteratively denoises a 3D motion $\mathbf{m}_0 \in \mathbb{R}^{S \times D}$ within a DDPM framework~\cite{ddpm2020, vimo2024}, comparing multi-view projections of $\mathbf{m}_0$ against $\mathbf{p}$ without explicit camera estimation. Two training improvements accelerate convergence:
-\begin{itemize}
-    \item \textbf{Min-SNR-$\gamma$ weighting}~\cite{minsnr2024}: each timestep loss is scaled by $w_t = \min(\mathrm{SNR}_t,\, \gamma)$, preventing gradient imbalance across the noise schedule.
-    \item \textbf{Probabilistic Timestep Sampling (PTSS)}~\cite{ptss2024}: with probability $p$, each frame receives an independent diffusion timestep; otherwise a shared timestep is broadcast, bounding the combinatorial cost of vectorized schedules.
-\end{itemize}
+\paragraph{Data scarcity and domain limitations.}
+Data-driven generative approaches---such as text-to-motion diffusion models~\cite{motiondiffuse2022} and music-conditioned dance generation~\cite{edge2023}---offer scalable alternatives but inherit biases from limited datasets like AMASS~\cite{amass2019}, Human3.6M~\cite{h3wb2014}, and AIST++~\cite{aist2021}. Models trained on narrow domains struggle to generalize to styles such as martial arts or classical dance, reflecting the ongoing scarcity and high cost of collecting diverse 3D motion data.
 
-\paragraph{Physics-based imitation.}
-Kinematic outputs satisfy geometric plausibility but violate physical laws---ground penetration, unrealisable torques, and missing contact dynamics. The second stage closes this gap by training a policy $\pi_\theta(\mathbf{a}_t \mid \mathbf{s}_t)$ to control a simulated humanoid in MuJoCo~\cite{mujoco2012} under full rigid-body simulation.
+Casual video offers an escape from this scarcity. Platforms host billions of clips spanning ballet, occupational tasks, and impromptu performance. Unlike curated motion-capture datasets, these recordings feature dynamic camera work, shot transitions, occlusion, and varied environments---precisely the failure modes of conventional 3D pose estimators. Methods that regress 3D joints from 2D observations rely on static or accurately estimable camera parameters~\cite{motionbert2023, glamr2022}. Under casual video conditions, frame-wise predictions accumulate errors, producing jittery and implausible trajectories.
 
-Reward engineering for diverse motion styles is notoriously brittle. The reward is instead formulated adversarially: a set of discriminators $\{D_k\}_{k=1}^K$, each a GRU-MLP network, learns to separate reference motion windows from policy rollouts. The bounded discriminator output
-\[
-    r_t = \frac{1}{K}\sum_{k=1}^{K} \mathrm{clip}\bigl(D_k(\mathbf{o}_{t-H:t}),\; -1,\; 1\bigr)
-\]
-replaces any hand-designed reward and drives Proximal Policy Optimization (PPO)~\cite{ppo2017}. Discriminator stability is ensured via hinge loss and gradient penalty regularisation~\cite{wgangp2017}, grounded in adversarial imitation learning~\cite{gail2016, iccgan2021}.
+\paragraph{ViMo-Flow: generative video-to-motion.}
+ViMo~\cite{vimo2024} reframes video-to-motion as a generative task. Given 2D pose trajectories $\mathbf{p} \in \mathbb{R}^{S \times J \times 3}$ from video, a diffusion model synthesizes plausible 3D motion sequences without explicit camera estimation. Multi-view projections of generated motions are compared against input 2D sequences; the denoising network operates over full temporal windows, enforcing coherence through transformer self-attention.
 
-For composite behaviours (e.g., walking while gesturing), each discriminator is assigned to a distinct body-part group and operates on its subset of key links. A weighted multi-objective aggregation balances competing signals~\cite{composite2023}, and goal-conditioned extensions steer locomotion toward spatial targets.
+Our implementation enhances this framework through two training advances. \emph{Min-SNR weighting}~\cite{minsnr2024} reweights each timestep by its signal-to-noise ratio, emphasizing high-SNR steps that contribute meaningful signal. \emph{Vectorized timestep sampling}~\cite{ptss2024} encodes timesteps as dense vectors rather than scalar indices, enabling the transformer to exploit long-range temporal correlations for improved rhythmic alignment.
 
-Two auxiliary strategies are studied as case studies:
+\paragraph{Kinematic versus physics-based methods.}
+Kinematic approaches generate motions without leveraging physical equations of motion~\cite{phasefunc2017, lmm2020}. While high-quality animations can be produced depending on dataset size, such methods fail under complex perturbations or environmental variations. Physics-based methods instead perform simulation through a physics engine, guaranteeing physical realism and enabling sim-to-real transfer~\cite{admlr2019, arlsia2020}.
+
+A central challenge in physics-based motion generation is controller optimization. Control signals---whether direct joint torques or proportional-derivative (PD) servos---are typically inaccessible when capturing motion in the real world. Deep reinforcement learning has emerged as the dominant paradigm for obtaining general controllers without pre-assumed heuristics~\cite{pbmcidrl2018, deepmimic2018, scadiver2020}.
+
+\paragraph{Adversarial imitation learning.}
+Reward engineering for diverse motion styles is notoriously brittle. We formulate an \emph{adversarial imitation scheme} that eliminates hand-crafted rewards through generative adversarial imitation learning (GAIL)~\cite{gail2016, npmphc2019}. An ensemble of discriminators $\{D_k\}_{k=1}^K$ learns to distinguish reference motion segments from policy-generated trajectories, with discriminator outputs directly driving policy optimization:
+\begin{equation*}
+    r_t = \sum_{k=1}^{K} w_k \cdot \sigma(D_k(s_t, a_t)),
+\end{equation*}
+where $\sigma(\cdot)$ denotes the sigmoid function and $w_k$ are learnable aggregation weights.
+
+This GAN-like approach~\cite{iccgan2021, deepmimic2018} achieves state-of-the-art imitation performance without manual reward design. Unlike motion-tracking methods~\cite{scadiver2020, ddrc2019} that require explicit target pose tracking or phase-based synchronization, our policy operates using only recent trajectory history, eliminating the need for motion generation or matching mechanisms during policy transitions.
+
+\paragraph{Composite multi-objective control.}
+Humans perform sophisticated composite behaviors---walking while gesturing, locomoting while manipulating objects---without examples of every possible combination. We extend the adversarial framework to \emph{composite motion learning}~\cite{composite2023}, where each discriminator is assigned to a distinct body-part group and operates on its subset of key links. The policy explores automatically how composite motions combine through weighted reward aggregation, without requiring pre-composed reference clips.
+
+Our multi-objective framework supports task-directed goals such as navigation targets alongside imitation objectives. Decoupling full-body control during training transforms imitation and goal-directed objectives into a unified learning problem where the policy discovers state-dependent weightings dynamically.
+
+\paragraph{Training methodology.}
+The policy $\pi_\theta$ is trained via PPO~\cite{ppo2017} with three algorithmic components:
+
 \begin{enumerate}
-    \item \textbf{Bilateral symmetry regularisation}~\cite{symlocom2018}: an $\ell_2$ penalty on mirrored sagittal-plane joint actions reduces the exploration space for symmetric gaits.
-    \item \textbf{Phase-conditioned observations}: sinusoidal encodings $(\sin 2\pi\phi,\, \cos 2\pi\phi)$, with $\phi \in [0,1)$ tracking the normalised cycle position, provide an explicit temporal cue for looped motions.
+    \item \emph{Motion retargeting:} SMPL skeletal data is transformed to the simulation character through coordinate system alignment, per-joint bind rotation estimation, and proportional height scaling.
+    \item \emph{Bilateral symmetry regularisation:} An $\ell_2$ penalty on mirrored sagittal-plane joint actions reduces exploration space for symmetric gaits~\cite{symlocom2018}.
+    \item \emph{Phase-conditioned observations:} Sinusoidal encodings $(\sin 2\pi\phi, \cos 2\pi\phi)$, with $\phi \in [0,1)$ tracking normalized cycle position, provide explicit temporal cues for looped motions.
 \end{enumerate}
-Both techniques accelerate convergence on simple locomotion but introduce trade-offs on complex, asymmetric motions, characterised empirically in the experiments.
 
 \paragraph{Contributions.}
 \begin{enumerate}
-    \item A diffusion-based video-to-motion framework (ViMo-Flow) with Min-SNR weighting and vectorized timestep sampling for kinematic motion synthesis from casual video.
-    \item An adversarial physics-based imitation pipeline with composite multi-discriminator rewards in a MuJoCo simulation environment.
-    \item A motion retargeting procedure mapping SMPL skeletal data to the simulation character via coordinate transforms, bind rotations, and height scaling.
-    \item Empirical analysis of symmetry regularisation and phase-conditioned observations for locomotion learning.
+    \item A diffusion-based video-to-motion framework (ViMo-Flow) with Min-SNR weighting and vectorized timestep sampling for kinematic synthesis from casual video.
+    \item An adversarial physics-based imitation pipeline employing body-part-specific discriminators with automatic reward aggregation, eliminating hand-crafted reward engineering.
+    \item A composite multi-objective learning framework enabling policy training from decoupled motion sources without pre-composed reference clips.
+    \item A motion retargeting procedure mapping SMPL skeletal data to simulation characters via coordinate transforms, bind rotations, and height scaling.
+    \item Empirical analysis of bilateral symmetry regularisation and phase-conditioned observations for locomotion learning.
 \end{enumerate}
+
 A third stage---policy adaptation for robust deployment~\cite{adaptnet2023}---is scoped as future work.

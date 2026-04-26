@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-eval_comparator.py — Compare multiple ICCGAN training runs side-by-side.
+eval_analyzer.py — Analyze multiple ICCGAN training runs side-by-side.
 Usage:
-python eval_comparator.py run_dir1 run_dir2 [run_dir3 ...]
-python eval_comparator.py run_dir1 run_dir2 --no-plots
-python eval_comparator.py run_dir1 run_dir2 --phase-metric lifetime_cycles
+python eval_analyzer.py run_dir1 run_dir2 [run_dir3 ...]
+python eval_analyzer.py run_dir1 run_dir2 --no-plots
+python eval_analyzer.py run_dir1 run_dir2 --phase-metric lifetime_cycles
 Compares runs with different training configurations (phase input,
 symmetry loss, motion cycle looping) using normalized metrics.
 """

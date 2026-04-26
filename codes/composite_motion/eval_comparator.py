@@ -13,7 +13,7 @@ import re
 import sys
 import warnings
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional, Any
+from typing import Dict, List, Tuple, Optional, Any, TextIO
 import numpy as np
 import pandas as pd
 import matplotlib
@@ -35,7 +35,7 @@ COLORS = [
     "#CC79A7",  # Reddish Purple - quaternary
     "#56B4E9",  # Sky Blue - light accent
     "#F0E442",  # Yellow - highlight (use with dark background)
-    "#000000",  # Black - reference lines
+    "#332288",  # Indigo - dark but not black
     "#E69F00",  # Orange - warm accent
     "#999999",  # Gray - neutral
     "#88CCEE",  # Light Blue - soft accent
@@ -44,13 +44,13 @@ COLORS = [
 # Line style configurations for better visual hierarchy
 LINE_CONFIG = {
     "raw_alpha": 0.06,      # Very transparent raw data (background texture)
-    "raw_lw": 0.4,          # Thin raw lines
-    "smooth_alpha": 0.85,   # High visibility smoothed lines
-    "smooth_lw": 1.4,       # Medium smoothed lines
-    "marker_size": 10,      # Smaller min/max markers
-    "marker_alpha": 0.7,    # Semi-transparent markers
+    "raw_lw": 0.28,         # Thinner raw lines
+    "smooth_alpha": 0.88,   # High visibility smoothed lines
+    "smooth_lw": 1.05,      # Slightly thinner smoothed lines
+    "marker_size": 6,       # Smaller min/max markers
+    "marker_alpha": 0.62,   # Semi-transparent markers
     "connect_alpha": 0.12,  # Very subtle min/max connection lines
-    "connect_lw": 0.7,      # Thin connection lines
+    "connect_lw": 0.5,      # Thinner connection lines
 }
 
 # Grid and axis styling
@@ -115,7 +115,8 @@ def _find_balanced_dict(text: str, start: int) -> int:
 def parse_cmds_txt(run_dir: Path) -> dict:
     """Parse cmds.txt and extract the LATEST training configuration"""
     meta = {
-        "run_name": run_dir.name,
+        #"run_name": run_dir.name, # default
+        "run_name": f"{run_dir.parent.name}_{run_dir.name}", # spl case
         "steps_per_cycle": None,
         "episode_length": None,
         "sym_loss_coeff": None,
@@ -162,12 +163,8 @@ def parse_cmds_txt(run_dir: Path) -> dict:
     # Extract run name from command
     m = re.search(r'"main\.py\s+([\w/]+\.py)', latest_entry_text)
     if m:
-        meta["run_name"] = Path(m.group(1)).stem
-    
-    # Also check for explicit Run Name
-    m_name = re.search(r"Run Name:\s*(.+)", latest_entry_text)
-    if m_name:
-        meta["run_name"] = m_name.group(1).strip()
+        #meta["run_name"] = Path(m.group(1)).stem
+        meta["run_name"] = Path(m.group(1)).with_suffix("").as_posix()
     
     # Parse Training Params from latest entry
     train_params = {}
@@ -282,9 +279,66 @@ def load_run(run_dir: Path) -> Tuple[dict, Optional[pd.DataFrame]]:
 # ─────────────────────────────────────────────────────────────────────────────
 def smooth(y: np.ndarray, w: int = 15) -> np.ndarray:
     """Smooth array with moving average"""
-    if len(y) < w:
-        return y
-    return np.convolve(y, np.ones(w) / w, mode="same")
+    arr = np.asarray(y, dtype=float)
+    n = arr.size
+    if n < 3:
+        return arr
+    # Keep odd window size for symmetric smoothing.
+    w = max(3, int(w))
+    if w % 2 == 0:
+        w += 1
+    if w > n:
+        w = n if n % 2 == 1 else n - 1
+    if w < 3:
+        return arr
+    valid = np.isfinite(arr)
+    if valid.sum() < 2:
+        return arr
+    if not valid.all():
+        arr = np.interp(np.arange(n), np.flatnonzero(valid), arr[valid])
+    kernel = np.ones(w, dtype=float) / float(w)
+    pad = w // 2
+    arr_pad = np.pad(arr, (pad, pad), mode="edge")
+    return np.convolve(arr_pad, kernel, mode="valid")
+
+
+def _shorten_run_names(names: List[str]) -> Tuple[List[str], str]:
+    """Strip shared prefix from run names while keeping labels unique."""
+    if not names:
+        return [], ""
+    cleaned = [str(n).replace("\\", "/").strip() for n in names]
+    if len(cleaned) == 1:
+        return cleaned, ""
+
+    split_names = [n.split("/") for n in cleaned]
+    min_parts = min(len(parts) for parts in split_names)
+    shared_parts = 0
+    for idx in range(min_parts):
+        token = split_names[0][idx]
+        if all(parts[idx] == token for parts in split_names):
+            shared_parts += 1
+        else:
+            break
+    if shared_parts > 0:
+        prefix = "/".join(split_names[0][:shared_parts])
+        shortened = ["/".join(parts[shared_parts:]) or parts[-1] for parts in split_names]
+    else:
+        prefix = os.path.commonprefix(cleaned)
+        cut = len(prefix)
+        while cut > 0 and prefix[cut - 1] not in ("/", "_", "-", "."):
+            cut -= 1
+        prefix = prefix[:cut]
+        shortened = [n[cut:] if cut > 0 else n for n in cleaned]
+        shortened = [s.lstrip("/_.- ") or n for s, n in zip(shortened, cleaned)]
+
+    # Ensure uniqueness if stripping created collisions.
+    counts: Dict[str, int] = {}
+    unique_names: List[str] = []
+    for idx, s in enumerate(shortened):
+        base = s or cleaned[idx]
+        counts[base] = counts.get(base, 0) + 1
+        unique_names.append(base if counts[base] == 1 else f"{base}#{counts[base]}")
+    return unique_names, prefix
 
 def calculate_trend(values: np.ndarray) -> float:
     """Calculate linear trend (slope) of values"""
@@ -424,6 +478,13 @@ def build_period_tables(runs: List[Tuple[dict, pd.DataFrame]],
                 else:
                     period_data[meta["run_name"]].append(f"{mean_str} {std_str} | {trend_str}")
         
+        lengths = {k: len(v) for k, v in period_data.items()}
+        if len(set(lengths.values())) != 1:
+            print(
+                "[DEBUG] build_period_tables length mismatch: "
+                f"period_idx={period_idx}, epochs={start_epoch}-{end_epoch}, lengths={lengths}"
+            )
+
         df_period = pd.DataFrame(period_data).set_index("Metric")
         df_period.columns.name = f"Period {period_idx + 1} (Epochs {start_epoch}-{end_epoch})"
         tables.append(df_period)
@@ -540,8 +601,12 @@ def plot_comparison(runs: List[Tuple[dict, pd.DataFrame]],
         display_name = reward_col.replace('reward_', '').replace('_', ' ').title()
         metrics_to_plot.append((reward_col, f"Reward: {display_name}", "reward", False))
     
-    # Add additional disc columns if multiple types
-    if len(all_disc_names) > 1:
+    # Per-head plots only when some run logs multiple discriminators. Union of
+    # single-disc suffixes across runs (e.g. walk/full vs run/full) is not multi-disc.
+    any_run_has_multiple_discs = any(
+        len(meta.get("disc_column_names") or []) > 1 for meta, _ in runs
+    )
+    if any_run_has_multiple_discs and all_disc_names:
         for disc_name in sorted(all_disc_names):
             metrics_to_plot.append((f"score_real_{disc_name}", f"Real ({disc_name})", "score", False))
             metrics_to_plot.append((f"score_fake_{disc_name}", f"Fake ({disc_name})", "score", False))
@@ -610,7 +675,8 @@ def plot_comparison(runs: List[Tuple[dict, pd.DataFrame]],
             
             # Main plot line (updated styling)
             ax.plot(x, y, color=c, alpha=LINE_CONFIG["raw_alpha"], lw=LINE_CONFIG["raw_lw"])
-            ax.plot(x, smooth(y, w=11), color=c, lw=LINE_CONFIG["smooth_lw"], 
+            smoothed_y = smooth(y, w=21)
+            ax.plot(x, smoothed_y, color=c, lw=LINE_CONFIG["smooth_lw"], 
                 alpha=LINE_CONFIG["smooth_alpha"], label=meta["run_name"])
             
             # Find min/max in each period
@@ -657,13 +723,13 @@ def plot_comparison(runs: List[Tuple[dict, pd.DataFrame]],
             
             for si_idx, (min_pt, max_pt) in enumerate(zip(all_min_points[i], all_max_points[i])):
                 # Minimum marker
-                ax.scatter(min_pt[0], min_pt[1], color=c, s=LINE_CONFIG["marker_size"], 
+                ax.scatter(min_pt[0], min_pt[1], color=c, s=LINE_CONFIG["marker_size"],
                         marker='v', alpha=LINE_CONFIG["marker_alpha"], zorder=5, 
-                        edgecolors='white', linewidths=0.3)
+                        edgecolors='white', linewidths=0.22)
                 # Maximum marker
-                ax.scatter(max_pt[0], max_pt[1], color=c, s=LINE_CONFIG["marker_size"], 
+                ax.scatter(max_pt[0], max_pt[1], color=c, s=LINE_CONFIG["marker_size"],
                         marker='^', alpha=LINE_CONFIG["marker_alpha"], zorder=5, 
-                        edgecolors='white', linewidths=0.3)
+                        edgecolors='white', linewidths=0.22)
                 
                 # Add text labels only for last period (avoid clutter)
                 if si_idx == len(all_min_points[i]) - 1 and len(all_min_points[i]) > 1:
@@ -700,12 +766,12 @@ def plot_comparison(runs: List[Tuple[dict, pd.DataFrame]],
                 end = save_intervals[si_idx + 1]
                 period_mask = (x >= start) & (x < end)
                 if period_mask.sum() > 1:
-                    trend = calculate_trend(y[period_mask])
+                    trend = calculate_trend(smooth(y[period_mask], w=7))
                     trends.append(trend)
             
             if trends:
-                ax.plot(range(1,len(trends)+1), trends, color=c, lw=1.3, marker='o', 
-                    markersize=4, alpha=0.85, label=meta["run_name"][:10])
+                ax.plot(range(1,len(trends)+1), trends, color=c, lw=0.95, marker='o',
+                    markersize=2.6, alpha=0.85, label=meta["run_name"][:10])
         
         # Add acceleration summary as text box (outside plot area)
         if n_periods >= 2:
@@ -725,8 +791,8 @@ def plot_comparison(runs: List[Tuple[dict, pd.DataFrame]],
                     mask1 = (x >= save_intervals[si_idx]) & (x < save_intervals[si_idx+1])
                     mask2 = (x >= save_intervals[si_idx+1]) & (x < save_intervals[si_idx+2])
                     if mask1.sum() > 1 and mask2.sum() > 1:
-                        t1 = calculate_trend(y[mask1])
-                        t2 = calculate_trend(y[mask2])
+                        t1 = calculate_trend(smooth(y[mask1], w=7))
+                        t2 = calculate_trend(smooth(y[mask2], w=7))
                         accelerations.append(t2 - t1)
                 
                 if accelerations:
@@ -756,9 +822,14 @@ def plot_comparison(runs: List[Tuple[dict, pd.DataFrame]],
         _plot_trend(ax_trend, df_col, runs, save_intervals_list, df_col)
     
     # Legend at top
-    fig.legend(handles=legend_handles, loc="upper center",
-               ncol=min(len(runs), 6), fontsize=8,
-               bbox_to_anchor=(0.5, 1.00), framealpha=0.9)
+    fig.legend(handles=legend_handles,
+               loc="upper center",
+               ncol=max(1, len(runs)),
+               mode="expand",
+               fontsize=8,
+               bbox_to_anchor=(0.1, 0.95, 0.80, 0.05),
+               borderaxespad=0.0,
+               framealpha=0.9)
     
     fig.suptitle(plot_title, fontsize=14, fontweight="bold", y=1.01)
     plt.savefig(output_path, dpi=300, bbox_inches="tight")
@@ -923,16 +994,16 @@ def conclusive_summary(runs: List[Tuple[dict, pd.DataFrame]],
 # ─────────────────────────────────────────────────────────────────────────────
 # Main
 # ─────────────────────────────────────────────────────────────────────────────
-def print_table(df: pd.DataFrame, title: str = ""):
+def print_table(df: pd.DataFrame, title: str = "", out: TextIO = sys.stdout):
     """Pretty print a DataFrame"""
     if df is None or df.empty:
         return
     if title:
-        print(f"\n{'─'*70}\n{title}\n{'─'*70}")
+        print(f"\n{'─'*70}\n{title}\n{'─'*70}", file=out)
     with pd.option_context("display.max_columns", None,
                           "display.width", 250,
                           "display.max_colwidth", 100):
-        print(df.to_string())
+        print(df.to_string(), file=out)
 
 def main():
     parser = argparse.ArgumentParser(
@@ -941,6 +1012,10 @@ def main():
     parser.add_argument("--output", "-o", default="case_studies/comparison.png")
     parser.add_argument("--no-plots", action="store_true")
     args = parser.parse_args()
+    output_path = Path(args.output)
+    out_dir = output_path.parent if str(output_path.parent) not in ("", ".") else Path(".")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    analysis_path = out_dir / "analysis.txt"
     
     # Load all runs
     runs = []
@@ -962,22 +1037,13 @@ def main():
         print("No valid runs found.", file=sys.stderr)
         sys.exit(1)
     
-    # Handle run names - if all same, use parent folder names
+    # Normalize run labels by removing shared prefix across all runs.
     run_names = [m["run_name"] for m, _ in runs]
-    common_base_name = ""
-    
-    if len(set(run_names)) == 1:
-        # All run names are the same - use parent folder names
-        common_base_name = run_names[0]
-        for i, (meta, df) in enumerate(runs):
-            parent_name = Path(args.run_dirs[i]).parent.name
-            meta["run_name"] = parent_name
-        print(f"\n[!] All runs had same name '{common_base_name}' - using parent folder names instead")
-    else:
-        # Find common prefix for plot title
-        common_base_name = os.path.commonprefix(run_names)
-        if len(common_base_name) < 3:
-            common_base_name = ""
+    normalized_names, common_base_name = _shorten_run_names(run_names)
+    for (meta, _), norm_name in zip(runs, normalized_names):
+        meta["run_name"] = norm_name
+    if common_base_name and len(common_base_name) < 3:
+        common_base_name = ""
     
     # Check save_interval and log_interval consistency
     save_intervals = [m.get("save_interval", 500) for m, _ in runs]
@@ -988,54 +1054,58 @@ def main():
         save_interval = int(np.mean(save_intervals))
     else:
         save_interval = save_intervals[0]
+    save_interval *= 2 # to increase analysis period
     
     if len(set(log_intervals)) > 1:
         warnings.warn(f"Log intervals differ across runs: {log_intervals}. Using average.")
         log_interval = int(np.mean(log_intervals))
     else:
         log_interval = log_intervals[0]
+    with analysis_path.open("w", encoding="utf-8") as analysis_out:
+        print(f"Using save_interval = {save_interval}, log_interval = {log_interval} for period analysis", file=analysis_out)
+        
+        # Print parameter table
+        param_table = build_param_table(runs)
+        print_table(param_table, "Run Parameters", out=analysis_out)
+        diff = highlight_diffs(param_table)
+        if diff:
+            print(f"\nDiffering params: {', '.join(sorted(diff))}", file=analysis_out)
+        
+        # Build metrics list for tables
+        metrics_for_tables = [
+            "lifetime_cycles", "reward_mean", "policy_loss", "value_loss",
+            "disc_gap", "score_real", "score_fake"
+        ]
+        
+        # Add sym_loss if any run has coeff > 0
+        if any(m.get("sym_loss_coeff", 0) > 0 for m, _ in runs):
+            metrics_for_tables.append("sym_loss_norm")
+        
+        # Add additional reward columns from all runs
+        for meta, df in runs:
+            if meta.get("reward_columns"):
+                for col in meta["reward_columns"]:
+                    if col not in metrics_for_tables:
+                        metrics_for_tables.append(col)
+        
+        # Build and print ALL period tables
+        period_tables = build_period_tables(runs, save_interval, log_interval, metrics_for_tables)
+        for i, table in enumerate(period_tables):
+            print_table(table, f"Period {i+1} Metrics (mean ±std | t1=1st_half; t2=2nd_half)", out=analysis_out)
+        
+        # Build and print acceleration table
+        accel_table = build_acceleration_table(runs, save_interval, log_interval, metrics_for_tables)
+        if not accel_table.empty:
+            print_table(accel_table, "Overall Acceleration (trend change per period)", out=analysis_out)
+        
+        # Print conclusive summary (using last period data)
+        print(conclusive_summary(runs, save_interval, log_interval), file=analysis_out)
     
-    print(f"\nUsing save_interval = {save_interval}, log_interval = {log_interval} for period analysis")
-    
-    # Print parameter table
-    print_table(build_param_table(runs), "Run Parameters")
-    diff = highlight_diffs(build_param_table(runs))
-    if diff:
-        print(f"\nDiffering params: {', '.join(sorted(diff))}")
-    
-    # Build metrics list for tables
-    metrics_for_tables = [
-        "lifetime_cycles", "reward_mean", "policy_loss", "value_loss",
-        "disc_gap", "score_real", "score_fake"
-    ]
-    
-    # Add sym_loss if any run has coeff > 0
-    if any(m.get("sym_loss_coeff", 0) > 0 for m, _ in runs):
-        metrics_for_tables.append("sym_loss_norm")
-    
-    # Add additional reward columns from all runs
-    for meta, df in runs:
-        if meta.get("reward_columns"):
-            for col in meta["reward_columns"]:
-                if col not in metrics_for_tables:
-                    metrics_for_tables.append(col)
-    
-    # Build and print ALL period tables
-    period_tables = build_period_tables(runs, save_interval, log_interval, metrics_for_tables)
-    for i, table in enumerate(period_tables):
-        print_table(table, f"Period {i+1} Metrics (mean ±std | t1=1st_half; t2=2nd_half)")
-    
-    # Build and print acceleration table
-    accel_table = build_acceleration_table(runs, save_interval, log_interval, metrics_for_tables)
-    if not accel_table.empty:
-        print_table(accel_table, "Overall Acceleration (trend change per period)")
-    
-    # Print conclusive summary (using last period data)
-    print(conclusive_summary(runs, save_interval, log_interval))
+    print(f"\n📝 Analysis report saved → {analysis_path}")
     
     # Generate plots
     if not args.no_plots and any(df is not None for _, df in runs):
-        print(f"\nGenerating comparison chart → {args.output} …")
+        #print(f"\nGenerating comparison chart → {args.output} …")
         plot_comparison(runs, args.output, save_interval, log_interval, common_base_name)
 
 if __name__ == "__main__":

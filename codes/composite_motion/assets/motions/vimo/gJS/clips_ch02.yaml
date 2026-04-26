@@ -23,7 +23,7 @@ motions:
   weight: null
 - file: ch02/gJS_sBM_cAll_d03_mJS5_ch02.json
   weight: null
-- file: ch02/gJS_sFM_cAll_d02_mJS1_ch02.json
-  weight: null
-- file: ch02/gJS_sFM_cAll_d03_mJS1_ch02.json
-  weight: null
+# - file: ch02/gJS_sFM_cAll_d02_mJS1_ch02.json
+#   weight: null
+# - file: ch02/gJS_sFM_cAll_d03_mJS1_ch02.json
+#   weight: null

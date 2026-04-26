@@ -3,25 +3,25 @@ motions:
   weight: null
 - file: ch02/gMH_sBM_cAll_d22_mMH1_ch02.json
   weight: null
-- file: ch02/gMH_sBM_cAll_d22_mMH2_ch02.json
-  weight: null
-- file: ch02/gMH_sBM_cAll_d22_mMH3_ch02.json
-  weight: null
-- file: ch02/gMH_sBM_cAll_d23_mMH0_ch02.json
-  weight: null
-- file: ch02/gMH_sBM_cAll_d23_mMH1_ch02.json
-  weight: null
+# - file: ch02/gMH_sBM_cAll_d22_mMH2_ch02.json
+#   weight: null
+# - file: ch02/gMH_sBM_cAll_d22_mMH3_ch02.json
+#   weight: null
+# - file: ch02/gMH_sBM_cAll_d23_mMH0_ch02.json
+#   weight: null
+# - file: ch02/gMH_sBM_cAll_d23_mMH1_ch02.json
+#   weight: null
 - file: ch02/gMH_sBM_cAll_d23_mMH4_ch02.json
   weight: null
-- file: ch02/gMH_sBM_cAll_d23_mMH5_ch02.json
-  weight: null
+# - file: ch02/gMH_sBM_cAll_d23_mMH5_ch02.json
+#   weight: null
 - file: ch02/gMH_sBM_cAll_d24_mMH2_ch02.json
   weight: null
 - file: ch02/gMH_sBM_cAll_d24_mMH3_ch02.json
   weight: null
-- file: ch02/gMH_sBM_cAll_d24_mMH4_ch02.json
-  weight: null
-- file: ch02/gMH_sBM_cAll_d24_mMH5_ch02.json
-  weight: null
-- file: ch02/gMH_sFM_cAll_d22_mMH1_ch02.json
-  weight: null
+# - file: ch02/gMH_sBM_cAll_d24_mMH4_ch02.json
+#   weight: null
+# - file: ch02/gMH_sBM_cAll_d24_mMH5_ch02.json
+#   weight: null
+# - file: ch02/gMH_sFM_cAll_d22_mMH1_ch02.json
+#   weight: null

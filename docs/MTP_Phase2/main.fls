@@ -387,6 +387,9 @@ INPUT C:\Program Files\MiKTeX\tex\latex\algorithmicx\algpseudocode.sty
 INPUT C:\Program Files\MiKTeX\tex\latex\algorithmicx\algpseudocode.sty
 INPUT C:\Program Files\MiKTeX\tex\latex\algorithmicx\algorithmicx.sty
 INPUT C:\Program Files\MiKTeX\tex\latex\algorithmicx\algorithmicx.sty
+INPUT .\main.aux
+INPUT .\main.aux
+INPUT main.aux
 OUTPUT main.aux
 INPUT C:\Program Files\MiKTeX\tex\context\base\mkii\supp-pdf.mkii
 INPUT C:\Program Files\MiKTeX\tex\context\base\mkii\supp-pdf.mkii
@@ -479,6 +482,13 @@ INPUT .\FrontContents\certificate.tex
 INPUT FrontContents\certificate.tex
 OUTPUT main.toc
 OUTPUT main.lof
+OUTPUT main.lot
+INPUT .\FrontContents\abbreviations.tex
+INPUT .\FrontContents\abbreviations.tex
+OUTPUT FrontContents\abbreviations.aux
+INPUT .\FrontContents\abbreviations.tex
+INPUT .\FrontContents\abbreviations.tex
+INPUT FrontContents\abbreviations.tex
 INPUT .\Pages\1_intro.tex
 INPUT .\Pages\1_intro.tex
 OUTPUT Pages\1_intro.aux
@@ -486,10 +496,6 @@ INPUT .\Pages\1_intro.tex
 INPUT .\Pages\1_intro.tex
 INPUT Pages\1_intro.tex
 INPUT C:\Program Files\MiKTeX\fonts\tfm\adobe\times\ptmb8t.tfm
-INPUT C:\Program Files\MiKTeX\tex\latex\psnfss\ts1ptm.fd
-INPUT C:\Program Files\MiKTeX\tex\latex\psnfss\ts1ptm.fd
-INPUT C:\Program Files\MiKTeX\tex\latex\psnfss\ts1ptm.fd
-INPUT C:\Program Files\MiKTeX\fonts\tfm\adobe\times\ptmr8c.tfm
 INPUT C:\Program Files\MiKTeX\fonts\vf\adobe\times\ptmb8t.vf
 INPUT C:\Program Files\MiKTeX\fonts\tfm\adobe\times\ptmb8r.tfm
 INPUT C:\Program Files\MiKTeX\fonts\vf\adobe\times\ptmb7t.vf
@@ -508,7 +514,6 @@ INPUT C:\Program Files\MiKTeX\fonts\tfm\adobe\times\ptmr8r.tfm
 INPUT C:\Users\vloge\AppData\Local\MiKTeX\fonts\tfm\public\rsfs\rsfs10.tfm
 INPUT C:\Program Files\MiKTeX\fonts\vf\adobe\times\zptmcm7t.vf
 INPUT C:\Program Files\MiKTeX\fonts\tfm\public\cm\cmr10.tfm
-INPUT C:\Program Files\MiKTeX\fonts\vf\adobe\times\ptmr8c.vf
 INPUT C:\Program Files\MiKTeX\fonts\vf\adobe\times\zptmcm7m.vf
 INPUT C:\Program Files\MiKTeX\fonts\tfm\adobe\times\psyro.tfm
 INPUT C:\Program Files\MiKTeX\fonts\tfm\public\cm\cmmi10.tfm
@@ -524,6 +529,13 @@ OUTPUT Pages\2_related.aux
 INPUT .\Pages\2_related.tex
 INPUT .\Pages\2_related.tex
 INPUT Pages\2_related.tex
+INPUT .\Pictures\gail.png
+INPUT .\Pictures\gail.png
+INPUT .\Pictures\gail.png
+INPUT .\Pictures\gail.png
+INPUT .\Pictures\gail.png
+INPUT .\Pictures\gail.png
+INPUT .\Pictures\gail.png
 INPUT .\Pages\3_overview.tex
 INPUT .\Pages\3_overview.tex
 INPUT .\Pages\3_overview.tex
@@ -534,10 +546,19 @@ INPUT .\Pages\4_problem.tex
 INPUT .\Pages\4_problem.tex
 INPUT .\Pages\4_problem.tex
 INPUT Pages\4_problem.tex
-INPUT C:\Program Files\MiKTeX\fonts\tfm\adobe\times\ptmro8t.tfm
-INPUT C:\Program Files\MiKTeX\fonts\tfm\adobe\times\ptmbo8t.tfm
-INPUT C:\Program Files\MiKTeX\fonts\vf\adobe\times\ptmbo8t.vf
-INPUT C:\Program Files\MiKTeX\fonts\tfm\adobe\times\ptmbo8r.tfm
+INPUT C:\Program Files\MiKTeX\tex\latex\psnfss\ts1ptm.fd
+INPUT C:\Program Files\MiKTeX\tex\latex\psnfss\ts1ptm.fd
+INPUT C:\Program Files\MiKTeX\tex\latex\psnfss\ts1ptm.fd
+INPUT C:\Program Files\MiKTeX\fonts\tfm\adobe\times\ptmr8c.tfm
+INPUT C:\Program Files\MiKTeX\fonts\tfm\adobe\times\ptmr8t.tfm
+INPUT C:\Program Files\MiKTeX\fonts\tfm\adobe\times\ptmr8t.tfm
+INPUT .\Pictures\keypoints.png
+INPUT .\Pictures\keypoints.png
+INPUT .\Pictures\keypoints.png
+INPUT .\Pictures\keypoints.png
+INPUT .\Pictures\keypoints.png
+INPUT .\Pictures\keypoints.png
+INPUT .\Pictures\keypoints.png
 INPUT C:\Program Files\MiKTeX\fonts\vf\adobe\times\zptmcm7t.vf
 INPUT C:\Program Files\MiKTeX\fonts\tfm\adobe\symbol\psyr.tfm
 INPUT C:\Program Files\MiKTeX\fonts\tfm\adobe\times\ptmr8r.tfm
@@ -546,15 +567,7 @@ INPUT C:\Program Files\MiKTeX\fonts\vf\adobe\times\zptmcm7m.vf
 INPUT C:\Program Files\MiKTeX\fonts\tfm\adobe\times\psyro.tfm
 INPUT C:\Program Files\MiKTeX\fonts\tfm\public\cm\cmmi10.tfm
 INPUT C:\Program Files\MiKTeX\fonts\tfm\adobe\times\ptmri8r.tfm
-INPUT C:\Program Files\MiKTeX\fonts\tfm\adobe\times\ptmr8t.tfm
-INPUT C:\Program Files\MiKTeX\fonts\tfm\adobe\times\ptmr8t.tfm
-INPUT .\Pictures\keypoints.png
-INPUT .\Pictures\keypoints.png
-INPUT .\Pictures\keypoints.png
-INPUT .\Pictures\keypoints.png
-INPUT .\Pictures\keypoints.png
-INPUT .\Pictures\keypoints.png
-INPUT .\Pictures\keypoints.png
+INPUT C:\Program Files\MiKTeX\fonts\vf\adobe\times\ptmr8c.vf
 INPUT .\Pictures\posedata.png
 INPUT .\Pictures\posedata.png
 INPUT .\Pictures\posedata.png
@@ -562,6 +575,19 @@ INPUT .\Pictures\posedata.png
 INPUT .\Pictures\posedata.png
 INPUT .\Pictures\posedata.png
 INPUT .\Pictures\posedata.png
+INPUT .\Pictures\smpl.png
+INPUT .\Pictures\smpl.png
+INPUT .\Pictures\smpl.png
+INPUT .\Pictures\smpl.png
+INPUT .\Pictures\smpl.png
+INPUT .\Pictures\smpl.png
+INPUT .\Pictures\smpl.png
+INPUT C:\Program Files\MiKTeX\tex\latex\psnfss\t1pcr.fd
+INPUT C:\Program Files\MiKTeX\tex\latex\psnfss\t1pcr.fd
+INPUT C:\Program Files\MiKTeX\tex\latex\psnfss\t1pcr.fd
+INPUT C:\Program Files\MiKTeX\fonts\tfm\adobe\courier\pcrr8t.tfm
+INPUT C:\Program Files\MiKTeX\fonts\vf\adobe\courier\pcrr8t.vf
+INPUT C:\Program Files\MiKTeX\fonts\tfm\adobe\courier\pcrr8r.tfm
 INPUT .\Pages\5_framework.tex
 INPUT .\Pages\5_framework.tex
 INPUT .\Pages\5_framework.tex
@@ -592,34 +618,43 @@ INPUT .\Pictures\fdvm.png
 INPUT .\Pictures\fdvm.png
 INPUT .\Pictures\fdvm.png
 INPUT .\Pictures\fdvm.png
+INPUT .\Pictures\deepmimic.png
+INPUT .\Pictures\deepmimic.png
+INPUT .\Pictures\deepmimic.png
+INPUT .\Pictures\deepmimic.png
+INPUT .\Pictures\deepmimic.png
+INPUT .\Pictures\deepmimic.png
+INPUT .\Pictures\deepmimic.png
+INPUT .\Pictures\comp_motion.png
+INPUT .\Pictures\comp_motion.png
+INPUT .\Pictures\comp_motion.png
+INPUT .\Pictures\comp_motion.png
+INPUT .\Pictures\comp_motion.png
+INPUT .\Pictures\comp_motion.png
+INPUT .\Pictures\comp_motion.png
 INPUT .\Pages\6_losses.tex
 INPUT .\Pages\6_losses.tex
 INPUT .\Pages\6_losses.tex
 INPUT .\Pages\6_losses.tex
 INPUT Pages\6_losses.tex
-INPUT .\Pages\7_apps.tex
-INPUT .\Pages\7_apps.tex
-INPUT .\Pages\7_apps.tex
-INPUT .\Pages\7_apps.tex
-INPUT Pages\7_apps.tex
-INPUT .\Pages\8_physics.tex
-INPUT .\Pages\8_physics.tex
-INPUT .\Pages\8_physics.tex
-INPUT .\Pages\8_physics.tex
-INPUT Pages\8_physics.tex
-INPUT .\Pages\8_exp.tex
-INPUT .\Pages\8_exp.tex
-OUTPUT Pages\8_exp.aux
-INPUT .\Pages\8_exp.tex
-INPUT .\Pages\8_exp.tex
-INPUT Pages\8_exp.tex
-INPUT .\Pictures\smpl.png
-INPUT .\Pictures\smpl.png
-INPUT .\Pictures\smpl.png
-INPUT .\Pictures\smpl.png
-INPUT .\Pictures\smpl.png
-INPUT .\Pictures\smpl.png
-INPUT .\Pictures\smpl.png
+INPUT C:\Program Files\MiKTeX\fonts\tfm\adobe\times\ptmro8t.tfm
+INPUT C:\Program Files\MiKTeX\fonts\tfm\adobe\times\ptmbo8t.tfm
+INPUT C:\Program Files\MiKTeX\fonts\vf\adobe\times\ptmbo8t.vf
+INPUT C:\Program Files\MiKTeX\fonts\tfm\adobe\times\ptmbo8r.tfm
+INPUT C:\Program Files\MiKTeX\fonts\vf\adobe\times\ptmr8t.vf
+INPUT .\Pages\7_exp.tex
+INPUT .\Pages\7_exp.tex
+OUTPUT Pages\7_exp.aux
+INPUT .\Pages\7_exp.tex
+INPUT .\Pages\7_exp.tex
+INPUT Pages\7_exp.tex
+INPUT .\Pictures\sample_conversion.jpg
+INPUT .\Pictures\sample_conversion.jpg
+INPUT .\Pictures\sample_conversion.jpg
+INPUT .\Pictures\sample_conversion.jpg
+INPUT .\Pictures\sample_conversion.jpg
+INPUT .\Pictures\sample_conversion.jpg
+INPUT .\Pictures\sample_conversion.jpg
 INPUT .\Pictures\snr.png
 INPUT .\Pictures\snr.png
 INPUT .\Pictures\snr.png
@@ -627,9 +662,308 @@ INPUT .\Pictures\snr.png
 INPUT .\Pictures\snr.png
 INPUT .\Pictures\snr.png
 INPUT .\Pictures\snr.png
+INPUT .\outputs\case_studies\limp-h=8,16.png
+INPUT .\outputs\case_studies\limp-h=8,16.png
+INPUT .\outputs\case_studies\limp-h=8,16.png
+INPUT .\outputs\case_studies\limp-h=8,16.png
+INPUT .\outputs\case_studies\limp-h=8,16.png
+INPUT .\outputs\case_studies\limp-h=8,16.png
+INPUT .\outputs\case_studies\limp-h=8,16.png
+INPUT .\outputs\case_studies\jaunty-h=8,16.png
+INPUT .\outputs\case_studies\jaunty-h=8,16.png
+INPUT .\outputs\case_studies\jaunty-h=8,16.png
+INPUT .\outputs\case_studies\jaunty-h=8,16.png
+INPUT .\outputs\case_studies\jaunty-h=8,16.png
+INPUT .\outputs\case_studies\jaunty-h=8,16.png
+INPUT .\outputs\case_studies\jaunty-h=8,16.png
+INPUT .\outputs\case_studies\joyful-h=8,16.png
+INPUT .\outputs\case_studies\joyful-h=8,16.png
+INPUT .\outputs\case_studies\joyful-h=8,16.png
+INPUT .\outputs\case_studies\joyful-h=8,16.png
+INPUT .\outputs\case_studies\joyful-h=8,16.png
+INPUT .\outputs\case_studies\joyful-h=8,16.png
+INPUT .\outputs\case_studies\joyful-h=8,16.png
+INPUT .\Pictures\exp_setup.png
+INPUT .\Pictures\exp_setup.png
+INPUT .\Pictures\exp_setup.png
+INPUT .\Pictures\exp_setup.png
+INPUT .\Pictures\exp_setup.png
+INPUT .\Pictures\exp_setup.png
+INPUT .\Pictures\exp_setup.png
+INPUT .\Pages\8_results.tex
+INPUT .\Pages\8_results.tex
+OUTPUT Pages\8_results.aux
+INPUT .\Pages\8_results.tex
+INPUT .\Pages\8_results.tex
+INPUT Pages\8_results.tex
+INPUT .\outputs\simulations\jaunty_walk.png
+INPUT .\outputs\simulations\jaunty_walk.png
+INPUT .\outputs\simulations\jaunty_walk.png
+INPUT .\outputs\simulations\jaunty_walk.png
+INPUT .\outputs\simulations\jaunty_walk.png
+INPUT .\outputs\simulations\jaunty_walk.png
+INPUT .\outputs\simulations\jaunty_walk.png
+INPUT .\outputs\simulations\joyful_walk.png
+INPUT .\outputs\simulations\joyful_walk.png
+INPUT .\outputs\simulations\joyful_walk.png
+INPUT .\outputs\simulations\joyful_walk.png
+INPUT .\outputs\simulations\joyful_walk.png
+INPUT .\outputs\simulations\joyful_walk.png
+INPUT .\outputs\simulations\joyful_walk.png
+INPUT .\outputs\simulations\limp_walk.png
+INPUT .\outputs\simulations\limp_walk.png
+INPUT .\outputs\simulations\limp_walk.png
+INPUT .\outputs\simulations\limp_walk.png
+INPUT .\outputs\simulations\limp_walk.png
+INPUT .\outputs\simulations\limp_walk.png
+INPUT .\outputs\simulations\limp_walk.png
+INPUT .\outputs\case_studies\iccgan_comparison.png
+INPUT .\outputs\case_studies\iccgan_comparison.png
+INPUT .\outputs\case_studies\iccgan_comparison.png
+INPUT .\outputs\case_studies\iccgan_comparison.png
+INPUT .\outputs\case_studies\iccgan_comparison.png
+INPUT .\outputs\case_studies\iccgan_comparison.png
+INPUT .\outputs\case_studies\iccgan_comparison.png
+INPUT .\outputs\simulations\squat.png
+INPUT .\outputs\simulations\squat.png
+INPUT .\outputs\simulations\squat.png
+INPUT .\outputs\simulations\squat.png
+INPUT .\outputs\simulations\squat.png
+INPUT .\outputs\simulations\squat.png
+INPUT .\outputs\simulations\squat.png
+INPUT .\outputs\simulations\punch.png
+INPUT .\outputs\simulations\punch.png
+INPUT .\outputs\simulations\punch.png
+INPUT .\outputs\simulations\punch.png
+INPUT .\outputs\simulations\punch.png
+INPUT .\outputs\simulations\punch.png
+INPUT .\outputs\simulations\punch.png
+INPUT .\outputs\simulations\leg_lunge.png
+INPUT .\outputs\simulations\leg_lunge.png
+INPUT .\outputs\simulations\leg_lunge.png
+INPUT .\outputs\simulations\leg_lunge.png
+INPUT .\outputs\simulations\leg_lunge.png
+INPUT .\outputs\simulations\leg_lunge.png
+INPUT .\outputs\simulations\leg_lunge.png
+INPUT .\outputs\simulations\kick.png
+INPUT .\outputs\simulations\kick.png
+INPUT .\outputs\simulations\kick.png
+INPUT .\outputs\simulations\kick.png
+INPUT .\outputs\simulations\kick.png
+INPUT .\outputs\simulations\kick.png
+INPUT .\outputs\simulations\kick.png
+INPUT .\outputs\simulations\long_jump.png
+INPUT .\outputs\simulations\long_jump.png
+INPUT .\outputs\simulations\long_jump.png
+INPUT .\outputs\simulations\long_jump.png
+INPUT .\outputs\simulations\long_jump.png
+INPUT .\outputs\simulations\long_jump.png
+INPUT .\outputs\simulations\long_jump.png
+INPUT .\outputs\simulations\roll.png
+INPUT .\outputs\simulations\roll.png
+INPUT .\outputs\simulations\roll.png
+INPUT .\outputs\simulations\roll.png
+INPUT .\outputs\simulations\roll.png
+INPUT .\outputs\simulations\roll.png
+INPUT .\outputs\simulations\roll.png
+INPUT .\outputs\case_studies\vimo_comparison.png
+INPUT .\outputs\case_studies\vimo_comparison.png
+INPUT .\outputs\case_studies\vimo_comparison.png
+INPUT .\outputs\case_studies\vimo_comparison.png
+INPUT .\outputs\case_studies\vimo_comparison.png
+INPUT .\outputs\case_studies\vimo_comparison.png
+INPUT .\outputs\case_studies\vimo_comparison.png
+INPUT .\outputs\simulations\gBR_ch01.png
+INPUT .\outputs\simulations\gBR_ch01.png
+INPUT .\outputs\simulations\gBR_ch01.png
+INPUT .\outputs\simulations\gBR_ch01.png
+INPUT .\outputs\simulations\gBR_ch01.png
+INPUT .\outputs\simulations\gBR_ch01.png
+INPUT .\outputs\simulations\gBR_ch01.png
+INPUT .\outputs\simulations\gHO_ch01.png
+INPUT .\outputs\simulations\gHO_ch01.png
+INPUT .\outputs\simulations\gHO_ch01.png
+INPUT .\outputs\simulations\gHO_ch01.png
+INPUT .\outputs\simulations\gHO_ch01.png
+INPUT .\outputs\simulations\gHO_ch01.png
+INPUT .\outputs\simulations\gHO_ch01.png
+INPUT .\outputs\simulations\gJS_ch02.png
+INPUT .\outputs\simulations\gJS_ch02.png
+INPUT .\outputs\simulations\gJS_ch02.png
+INPUT .\outputs\simulations\gJS_ch02.png
+INPUT .\outputs\simulations\gJS_ch02.png
+INPUT .\outputs\simulations\gJS_ch02.png
+INPUT .\outputs\simulations\gJS_ch02.png
+INPUT .\outputs\simulations\gLH_ch01.png
+INPUT .\outputs\simulations\gLH_ch01.png
+INPUT .\outputs\simulations\gLH_ch01.png
+INPUT .\outputs\simulations\gLH_ch01.png
+INPUT .\outputs\simulations\gLH_ch01.png
+INPUT .\outputs\simulations\gLH_ch01.png
+INPUT .\outputs\simulations\gLH_ch01.png
+INPUT .\outputs\simulations\gLO_ch02.png
+INPUT .\outputs\simulations\gLO_ch02.png
+INPUT .\outputs\simulations\gLO_ch02.png
+INPUT .\outputs\simulations\gLO_ch02.png
+INPUT .\outputs\simulations\gLO_ch02.png
+INPUT .\outputs\simulations\gLO_ch02.png
+INPUT .\outputs\simulations\gLO_ch02.png
+INPUT .\outputs\simulations\gMH_ch02.png
+INPUT .\outputs\simulations\gMH_ch02.png
+INPUT .\outputs\simulations\gMH_ch02.png
+INPUT .\outputs\simulations\gMH_ch02.png
+INPUT .\outputs\simulations\gMH_ch02.png
+INPUT .\outputs\simulations\gMH_ch02.png
+INPUT .\outputs\simulations\gMH_ch02.png
+INPUT .\outputs\simulations\gPO_ch01.png
+INPUT .\outputs\simulations\gPO_ch01.png
+INPUT .\outputs\simulations\gPO_ch01.png
+INPUT .\outputs\simulations\gPO_ch01.png
+INPUT .\outputs\simulations\gPO_ch01.png
+INPUT .\outputs\simulations\gPO_ch01.png
+INPUT .\outputs\simulations\gPO_ch01.png
+INPUT .\outputs\case_studies\loco_comparison.png
+INPUT .\outputs\case_studies\loco_comparison.png
+INPUT .\outputs\case_studies\loco_comparison.png
+INPUT .\outputs\case_studies\loco_comparison.png
+INPUT .\outputs\case_studies\loco_comparison.png
+INPUT .\outputs\case_studies\loco_comparison.png
+INPUT .\outputs\case_studies\loco_comparison.png
+INPUT .\outputs\simulations\loco_walk.png
+INPUT .\outputs\simulations\loco_walk.png
+INPUT .\outputs\simulations\loco_walk.png
+INPUT .\outputs\simulations\loco_walk.png
+INPUT .\outputs\simulations\loco_walk.png
+INPUT .\outputs\simulations\loco_walk.png
+INPUT .\outputs\simulations\loco_walk.png
+INPUT .\outputs\simulations\loco_crouch.png
+INPUT .\outputs\simulations\loco_crouch.png
+INPUT .\outputs\simulations\loco_crouch.png
+INPUT .\outputs\simulations\loco_crouch.png
+INPUT .\outputs\simulations\loco_crouch.png
+INPUT .\outputs\simulations\loco_crouch.png
+INPUT .\outputs\simulations\loco_crouch.png
+INPUT .\outputs\simulations\loco_run.png
+INPUT .\outputs\simulations\loco_run.png
+INPUT .\outputs\simulations\loco_run.png
+INPUT .\outputs\simulations\loco_run.png
+INPUT .\outputs\simulations\loco_run.png
+INPUT .\outputs\simulations\loco_run.png
+INPUT .\outputs\simulations\loco_run.png
 INPUT .\main.bbl
 INPUT .\main.bbl
 INPUT main.bbl
+INPUT .\Pages\9_apendix.tex
+INPUT .\Pages\9_apendix.tex
+OUTPUT Pages\9_apendix.aux
+INPUT .\Pages\9_apendix.tex
+INPUT .\Pages\9_apendix.tex
+INPUT Pages\9_apendix.tex
+INPUT .\outputs\d128_h4\run_v1_warm50\ground_truth_frames.png
+INPUT .\outputs\d128_h4\run_v1_warm50\ground_truth_frames.png
+INPUT .\outputs\d128_h4\run_v1_warm50\ground_truth_frames.png
+INPUT .\outputs\d128_h4\run_v1_warm50\ground_truth_frames.png
+INPUT .\outputs\d128_h4\run_v1_warm50\ground_truth_frames.png
+INPUT .\outputs\d128_h4\run_v1_warm50\ground_truth_frames.png
+INPUT .\outputs\d128_h4\run_v1_warm50\ground_truth_frames.png
+INPUT .\outputs\d128_h4\run_v1_warm50\predicted_estimate_frames.png
+INPUT .\outputs\d128_h4\run_v1_warm50\predicted_estimate_frames.png
+INPUT .\outputs\d128_h4\run_v1_warm50\predicted_estimate_frames.png
+INPUT .\outputs\d128_h4\run_v1_warm50\predicted_estimate_frames.png
+INPUT .\outputs\d128_h4\run_v1_warm50\predicted_estimate_frames.png
+INPUT .\outputs\d128_h4\run_v1_warm50\predicted_estimate_frames.png
+INPUT .\outputs\d128_h4\run_v1_warm50\predicted_estimate_frames.png
+INPUT .\outputs\d128_h4\run_v1_warm50\stochastic_generation_frames.png
+INPUT .\outputs\d128_h4\run_v1_warm50\stochastic_generation_frames.png
+INPUT .\outputs\d128_h4\run_v1_warm50\stochastic_generation_frames.png
+INPUT .\outputs\d128_h4\run_v1_warm50\stochastic_generation_frames.png
+INPUT .\outputs\d128_h4\run_v1_warm50\stochastic_generation_frames.png
+INPUT .\outputs\d128_h4\run_v1_warm50\stochastic_generation_frames.png
+INPUT .\outputs\d128_h4\run_v1_warm50\stochastic_generation_frames.png
+INPUT .\outputs\d128_h4\run_v1(sq)_ptss\ground_truth_frames.png
+INPUT .\outputs\d128_h4\run_v1(sq)_ptss\ground_truth_frames.png
+INPUT .\outputs\d128_h4\run_v1(sq)_ptss\ground_truth_frames.png
+INPUT .\outputs\d128_h4\run_v1(sq)_ptss\ground_truth_frames.png
+INPUT .\outputs\d128_h4\run_v1(sq)_ptss\ground_truth_frames.png
+INPUT .\outputs\d128_h4\run_v1(sq)_ptss\ground_truth_frames.png
+INPUT .\outputs\d128_h4\run_v1(sq)_ptss\ground_truth_frames.png
+INPUT .\outputs\d128_h4\run_v1(sq)_ptss\predicted_estimate_frames.png
+INPUT .\outputs\d128_h4\run_v1(sq)_ptss\predicted_estimate_frames.png
+INPUT .\outputs\d128_h4\run_v1(sq)_ptss\predicted_estimate_frames.png
+INPUT .\outputs\d128_h4\run_v1(sq)_ptss\predicted_estimate_frames.png
+INPUT .\outputs\d128_h4\run_v1(sq)_ptss\predicted_estimate_frames.png
+INPUT .\outputs\d128_h4\run_v1(sq)_ptss\predicted_estimate_frames.png
+INPUT .\outputs\d128_h4\run_v1(sq)_ptss\predicted_estimate_frames.png
+INPUT .\outputs\d128_h4\run_v1(sq)_ptss\stochastic_generation_frames.png
+INPUT .\outputs\d128_h4\run_v1(sq)_ptss\stochastic_generation_frames.png
+INPUT .\outputs\d128_h4\run_v1(sq)_ptss\stochastic_generation_frames.png
+INPUT .\outputs\d128_h4\run_v1(sq)_ptss\stochastic_generation_frames.png
+INPUT .\outputs\d128_h4\run_v1(sq)_ptss\stochastic_generation_frames.png
+INPUT .\outputs\d128_h4\run_v1(sq)_ptss\stochastic_generation_frames.png
+INPUT .\outputs\d128_h4\run_v1(sq)_ptss\stochastic_generation_frames.png
+INPUT .\outputs\d128_h4\run_v2(sq)_ptss\ground_truth_frames.png
+INPUT .\outputs\d128_h4\run_v2(sq)_ptss\ground_truth_frames.png
+INPUT .\outputs\d128_h4\run_v2(sq)_ptss\ground_truth_frames.png
+INPUT .\outputs\d128_h4\run_v2(sq)_ptss\ground_truth_frames.png
+INPUT .\outputs\d128_h4\run_v2(sq)_ptss\ground_truth_frames.png
+INPUT .\outputs\d128_h4\run_v2(sq)_ptss\ground_truth_frames.png
+INPUT .\outputs\d128_h4\run_v2(sq)_ptss\ground_truth_frames.png
+INPUT .\outputs\d128_h4\run_v2(sq)_ptss\predicted_estimate_frames.png
+INPUT .\outputs\d128_h4\run_v2(sq)_ptss\predicted_estimate_frames.png
+INPUT .\outputs\d128_h4\run_v2(sq)_ptss\predicted_estimate_frames.png
+INPUT .\outputs\d128_h4\run_v2(sq)_ptss\predicted_estimate_frames.png
+INPUT .\outputs\d128_h4\run_v2(sq)_ptss\predicted_estimate_frames.png
+INPUT .\outputs\d128_h4\run_v2(sq)_ptss\predicted_estimate_frames.png
+INPUT .\outputs\d128_h4\run_v2(sq)_ptss\predicted_estimate_frames.png
+INPUT .\outputs\d128_h4\run_v2(sq)_ptss\stochastic_generation_frames.png
+INPUT .\outputs\d128_h4\run_v2(sq)_ptss\stochastic_generation_frames.png
+INPUT .\outputs\d128_h4\run_v2(sq)_ptss\stochastic_generation_frames.png
+INPUT .\outputs\d128_h4\run_v2(sq)_ptss\stochastic_generation_frames.png
+INPUT .\outputs\d128_h4\run_v2(sq)_ptss\stochastic_generation_frames.png
+INPUT .\outputs\d128_h4\run_v2(sq)_ptss\stochastic_generation_frames.png
+INPUT .\outputs\d128_h4\run_v2(sq)_ptss\stochastic_generation_frames.png
+INPUT .\outputs\d256_h8\run_v1(sq) PTSS\ex1\ground_truth_frames.png
+INPUT .\outputs\d256_h8\run_v1(sq) PTSS\ex1\ground_truth_frames.png
+INPUT .\outputs\d256_h8\run_v1(sq) PTSS\ex1\ground_truth_frames.png
+INPUT .\outputs\d256_h8\run_v1(sq) PTSS\ex1\ground_truth_frames.png
+INPUT .\outputs\d256_h8\run_v1(sq) PTSS\ex1\ground_truth_frames.png
+INPUT .\outputs\d256_h8\run_v1(sq) PTSS\ex1\ground_truth_frames.png
+INPUT .\outputs\d256_h8\run_v1(sq) PTSS\ex1\ground_truth_frames.png
+INPUT .\outputs\d256_h8\run_v1(sq) PTSS\ex1\predicted_estimate_frames.png
+INPUT .\outputs\d256_h8\run_v1(sq) PTSS\ex1\predicted_estimate_frames.png
+INPUT .\outputs\d256_h8\run_v1(sq) PTSS\ex1\predicted_estimate_frames.png
+INPUT .\outputs\d256_h8\run_v1(sq) PTSS\ex1\predicted_estimate_frames.png
+INPUT .\outputs\d256_h8\run_v1(sq) PTSS\ex1\predicted_estimate_frames.png
+INPUT .\outputs\d256_h8\run_v1(sq) PTSS\ex1\predicted_estimate_frames.png
+INPUT .\outputs\d256_h8\run_v1(sq) PTSS\ex1\predicted_estimate_frames.png
+INPUT .\outputs\d256_h8\run_v1(sq) PTSS\ex1\stochastic_generation_frames.png
+INPUT .\outputs\d256_h8\run_v1(sq) PTSS\ex1\stochastic_generation_frames.png
+INPUT .\outputs\d256_h8\run_v1(sq) PTSS\ex1\stochastic_generation_frames.png
+INPUT .\outputs\d256_h8\run_v1(sq) PTSS\ex1\stochastic_generation_frames.png
+INPUT .\outputs\d256_h8\run_v1(sq) PTSS\ex1\stochastic_generation_frames.png
+INPUT .\outputs\d256_h8\run_v1(sq) PTSS\ex1\stochastic_generation_frames.png
+INPUT .\outputs\d256_h8\run_v1(sq) PTSS\ex1\stochastic_generation_frames.png
+INPUT .\outputs\d256_h8\run_v1(sq) PTSS\ex2\ground_truth_frames.png
+INPUT .\outputs\d256_h8\run_v1(sq) PTSS\ex2\ground_truth_frames.png
+INPUT .\outputs\d256_h8\run_v1(sq) PTSS\ex2\ground_truth_frames.png
+INPUT .\outputs\d256_h8\run_v1(sq) PTSS\ex2\ground_truth_frames.png
+INPUT .\outputs\d256_h8\run_v1(sq) PTSS\ex2\ground_truth_frames.png
+INPUT .\outputs\d256_h8\run_v1(sq) PTSS\ex2\ground_truth_frames.png
+INPUT .\outputs\d256_h8\run_v1(sq) PTSS\ex2\ground_truth_frames.png
+INPUT .\outputs\d256_h8\run_v1(sq) PTSS\ex2\predicted_estimate_frames.png
+INPUT .\outputs\d256_h8\run_v1(sq) PTSS\ex2\predicted_estimate_frames.png
+INPUT .\outputs\d256_h8\run_v1(sq) PTSS\ex2\predicted_estimate_frames.png
+INPUT .\outputs\d256_h8\run_v1(sq) PTSS\ex2\predicted_estimate_frames.png
+INPUT .\outputs\d256_h8\run_v1(sq) PTSS\ex2\predicted_estimate_frames.png
+INPUT .\outputs\d256_h8\run_v1(sq) PTSS\ex2\predicted_estimate_frames.png
+INPUT .\outputs\d256_h8\run_v1(sq) PTSS\ex2\predicted_estimate_frames.png
+INPUT .\outputs\d256_h8\run_v1(sq) PTSS\ex2\stochastic_generation_frames.png
+INPUT .\outputs\d256_h8\run_v1(sq) PTSS\ex2\stochastic_generation_frames.png
+INPUT .\outputs\d256_h8\run_v1(sq) PTSS\ex2\stochastic_generation_frames.png
+INPUT .\outputs\d256_h8\run_v1(sq) PTSS\ex2\stochastic_generation_frames.png
+INPUT .\outputs\d256_h8\run_v1(sq) PTSS\ex2\stochastic_generation_frames.png
+INPUT .\outputs\d256_h8\run_v1(sq) PTSS\ex2\stochastic_generation_frames.png
+INPUT .\outputs\d256_h8\run_v1(sq) PTSS\ex2\stochastic_generation_frames.png
 INPUT main.aux
 INPUT .\FrontContents\declaration.aux
 INPUT .\FrontContents\declaration.aux
@@ -637,15 +971,24 @@ INPUT FrontContents\declaration.aux
 INPUT .\FrontContents\certificate.aux
 INPUT .\FrontContents\certificate.aux
 INPUT FrontContents\certificate.aux
+INPUT .\FrontContents\abbreviations.aux
+INPUT .\FrontContents\abbreviations.aux
+INPUT FrontContents\abbreviations.aux
 INPUT .\Pages\1_intro.aux
 INPUT .\Pages\1_intro.aux
 INPUT Pages\1_intro.aux
 INPUT .\Pages\2_related.aux
 INPUT .\Pages\2_related.aux
 INPUT Pages\2_related.aux
-INPUT .\Pages\8_exp.aux
-INPUT .\Pages\8_exp.aux
-INPUT Pages\8_exp.aux
+INPUT .\Pages\7_exp.aux
+INPUT .\Pages\7_exp.aux
+INPUT Pages\7_exp.aux
+INPUT .\Pages\8_results.aux
+INPUT .\Pages\8_results.aux
+INPUT Pages\8_results.aux
+INPUT .\Pages\9_apendix.aux
+INPUT .\Pages\9_apendix.aux
+INPUT Pages\9_apendix.aux
 INPUT .\main.out
 INPUT .\main.out
 INPUT C:\Program Files\MiKTeX\fonts\type1\public\amsfonts\cm\cmex10.pfb
@@ -660,6 +1003,8 @@ INPUT C:\Program Files\MiKTeX\fonts\type1\public\amsfonts\symbols\msbm10.pfb
 INPUT C:\Program Files\MiKTeX\fonts\type1\public\amsfonts\symbols\msbm10.pfb
 INPUT C:\Program Files\MiKTeX\fonts\type1\public\rsfs\rsfs10.pfb
 INPUT C:\Program Files\MiKTeX\fonts\type1\public\rsfs\rsfs10.pfb
+INPUT C:\Program Files\MiKTeX\fonts\type1\urw\courier\ucrr8a.pfb
+INPUT C:\Program Files\MiKTeX\fonts\type1\urw\courier\ucrr8a.pfb
 INPUT C:\Program Files\MiKTeX\fonts\type1\urw\symbol\usyr.pfb
 INPUT C:\Program Files\MiKTeX\fonts\type1\urw\symbol\usyr.pfb
 INPUT C:\Program Files\MiKTeX\fonts\type1\urw\symbol\usyr.pfb

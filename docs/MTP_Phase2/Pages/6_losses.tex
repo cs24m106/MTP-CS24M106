@@ -1,5 +1,8 @@
-\subsection{Loss Functions}
+\section{Loss Functions}
 \label{sec:losses}
+
+\subsection{Motion Generation Objective}
+\label{sec:vimo_losses}
 
 \subsubsection{6D Rotation Representation}
 Joint rotations are encoded as 6D vectors capturing the first two columns of the orthonormal rotation matrix. A 3D rotation $\mathbf{R} \in \mathbb{R}^{3 \times 3}$ is represented as $[\mathbf{a}_1, \mathbf{a}_2] \in \mathbb{R}^6$, where $\mathbf{a}_1$ and $\mathbf{a}_2$ are orthonormal column vectors. The third column is recovered via cross product $\mathbf{a}_3 = \mathbf{a}_1 \times \mathbf{a}_2$. This representation is continuous, avoids the gimbal lock of Euler angles, and eliminates the unit-norm constraint of quaternions, making it better suited for gradient-based optimization~\cite{6drot2020}.
@@ -25,19 +28,93 @@ approximating angular velocity in 6D space.
 \]
 where $\hat{\mathbf{f}}_i \in \{0,1\}^4$ indicates left/right foot/toe ground contact. If $\hat{f}_i = 1$, the velocity must be near zero.
 
-Traditional methods compute $\hat{\mathbf{f}}_i$ via heuristic thresholds on foot velocity. ViMo learns $\hat{\mathbf{f}}_i$ as part of the model output without direct supervision; the only signal comes from $\mathcal{L}_{\text{foot}}$, encouraging the model to predict contact labels that minimize sliding. This self-supervised approach avoids arbitrary thresholds and adapts to the model's own motion predictions.
+Traditional methods compute $\hat{\mathbf{f}}_i$ via heuristic thresholds on foot velocity. ViMo-Flow learns $\hat{\mathbf{f}}_i$ as part of the model output without direct supervision; the only signal comes from $\mathcal{L}_{\text{foot}}$, encouraging the model to predict contact labels that minimize sliding. This self-supervised approach avoids arbitrary thresholds and adapts to the model's own motion predictions.
 
 \subsubsection{SNR Integration}
-Training directly predicts clean motion $\hat{\mathbf{m}}_0$ rather than noise. The simple diffusion loss, as well as all auxiliary losses ($\mathcal{L}_{\text{joints}}$, $\mathcal{L}_{\text{vel}}$, $\mathcal{L}_{\text{foot}}$), are reweighted by timestep-dependent SNR to balance contributions across the noise schedule. The SNR at timestep $t$ is $\text{SNR}_t = \bar{\alpha}_t / (1-\bar{\alpha}_t)$. Pure SNR weighting $w_t = \text{SNR}_t$ produces a steep cliff where most timesteps contribute near-zero gradient, yielding low sample efficiency.
+Training directly predicts clean motion $\hat{\mathbf{m}}_0$ rather than noise. The simple diffusion loss, together with all auxiliary losses ($\mathcal{L}_{\text{joints}}$, $\mathcal{L}_{\text{vel}}$, $\mathcal{L}_{\text{foot}}$), is reweighted by timestep-dependent SNR to balance contributions across the noise schedule. The SNR at timestep $t$ is $\text{SNR}_t = \bar{\alpha}_t / (1-\bar{\alpha}_t)$. Pure SNR weighting $w_t = \text{SNR}_t$ produces a steep cliff where most timesteps contribute near-zero gradient, yielding poor sample efficiency.
 
 Our implementation adopts a min-cap strategy that automatically selects the appropriate weighting across the diffusion process:
 \[
 w_t = \min\left( \text{SNR}_t,\ \sqrt{1 - \frac{t}{T}} \right).
 \]
-This formulation provides a smooth, monotonic ceiling: at early timesteps (high noise), the sqrt decay term caps the potentially large SNR$_t$ to prevent gradient explosion; at late timesteps (low noise), SNR$_t$ becomes small and dominates, avoiding vanishing gradients. The min operation seamlessly fills the "dead zone" while preserving SNR's natural emphasis on high-noise stages where coarse motion structure is learned.
+This formulation provides a smooth, monotonic ceiling: at early timesteps (high noise), the square-root decay caps the potentially large SNR$_t$ to prevent gradient explosion; at late timesteps (low noise), SNR$_t$ becomes small and dominates, avoiding vanishing gradients. The min operation preserves the natural emphasis on coarse-structure recovery while keeping all timesteps active during training.
 
 The overall training objective becomes:
 \[
 \mathcal{L} = \mathbb{E}_t [ w_t \|\mathbf{m}_0 - \hat{\mathbf{m}}_0\|_2^2 ] + \lambda_1 \mathbb{E}_t [ w_t \mathcal{L}_{\text{joints}} ] + \lambda_2 \mathbb{E}_t [ w_t \mathcal{L}_{\text{vel}} ] + \lambda_3 \mathbb{E}_t [ w_t \mathcal{L}_{\text{foot}} ].
 \]
-Weights $w_t$ are normalized per batch to stabilize training. This min-cap SNR strategy maximizes sample efficiency, prevents collapse to mean poses, and accelerates convergence by emphasizing timesteps where the signal structure is most informative~\cite{minsnr2024}.
+Weights $w_t$ are normalized per batch to stabilize training. This square-root-capped Min-SNR strategy preserves sample efficiency, prevents collapse to mean poses, and accelerates convergence by emphasizing timesteps where the signal structure is most informative~\cite{minsnr2024}.
+
+\subsection{Adversarial Control Objectives}
+\label{sec:physics_losses}
+
+\subsubsection{Discriminator Training Objective}
+Each body-group discriminator $D_k$ is trained with hinge loss to separate reference (real) from policy-generated (fake) motion windows. Since each discriminator is implemented as an ensemble of $N=32$ scalar heads, the training objective is written head-wise as
+\begin{equation}
+    \mathcal{L}_{D_k}
+    =
+    \frac{1}{N}\sum_{i=1}^{N}
+    \Bigl(
+        \underbrace{\mathbb{E}_{\mathbf{o} \sim \mathrm{ref}}\!\bigl[\max(0,\, 1 - D_k^{(i)}(\mathbf{o}))\bigr]}_{\text{real loss}}
+        +
+        \underbrace{\mathbb{E}_{\mathbf{o} \sim \pi}\!\bigl[\max(0,\, 1 + D_k^{(i)}(\mathbf{o}))\bigr]}_{\text{fake loss}}
+    \Bigr)
+    +
+    \lambda_{\text{gp}} \cdot \mathrm{GP}_k,
+    \label{eq:disc_loss}
+\end{equation}
+where the gradient penalty~\cite{wgangp2017}
+\[
+    \mathrm{GP}_k = \mathbb{E}_{\hat{\mathbf{o}}}\!\bigl[\bigl(\|\nabla_{\hat{\mathbf{o}}} \sum_{i=1}^{N} D_k^{(i)}(\hat{\mathbf{o}})\|_2 - 1\bigr)^2\bigr],
+    \quad \hat{\mathbf{o}} = \alpha\,\mathbf{o}_{\text{ref}} + (1{-}\alpha)\,\mathbf{o}_\pi,\; \alpha \sim U(0,1),
+\]
+enforces Lipschitz smoothness with $\lambda_{\text{gp}} = 10$. Hinge loss bounds scores to $[-1,1]$: real samples are pushed toward $+1$, fake samples toward $-1$. Once a sample is correctly classified with margin $\geq 1$, the corresponding hinge term saturates, preventing discriminator over-training on already-separated samples and preserving informative rewards~\cite{iccgan2021}.
+
+The reward signal per discriminator is the mean over 32 ensemble heads:
+\[
+    r_t^{(k)} = \frac{1}{32}\sum_{i=1}^{32} \mathrm{clip}\!\bigl(D_k^{(i)}(\mathbf{o}_{t-H_k:t}),\, -1,\, 1\bigr).
+\]
+
+\subsubsection{Policy Optimization via PPO}
+The policy is optimised with PPO~\cite{ppo2017}. Advantage estimates $\hat{A}_t$ are computed via GAE:
+\[
+    \hat{A}_t^{(i)} = \sum_{l=0}^{H_{\text{steps}}-1-t}(\gamma\lambda)^l\, \delta_{t+l}^{(i)}, \qquad
+    \delta_t^{(i)} = r_t^{(i)} + \gamma V^{(i)}(\mathbf{s}_{t+1}) - V^{(i)}(\mathbf{s}_t).
+\]
+For multi-objective training, each advantage stream is standardized independently across the rollout batch:
+\[
+    \bar{A}_t^{(i)} = \frac{\hat{A}_t^{(i)} - \mu_i}{\sigma_i + \varepsilon},
+\]
+where $(\mu_i,\sigma_i)$ are the batch mean and standard deviation of objective $i$. The weighted advantage is then
+\[
+    \bar{A}_t = \sum_i w_i \bar{A}_t^{(i)}.
+\]
+The clipped surrogate objective is
+\[
+    \mathcal{L}^{\text{clip}} = -\mathbb{E}_t\!\left[\min\!\left(\rho_t\,\bar{A}_t,\; \mathrm{clip}(\rho_t,\, 1{-}\epsilon,\, 1{+}\epsilon)\,\bar{A}_t\right)\right],
+    \quad \rho_t = \frac{\pi_\theta(\mathbf{a}_t|\mathbf{s}_t)}{\pi_{\theta_{\text{old}}}(\mathbf{a}_t|\mathbf{s}_t)},
+\]
+with $\epsilon = 0.2$. The value loss is
+\[
+    \mathcal{L}^{\text{value}} = \sum_i \bigl(V_\theta^{(i)}(\mathbf{s}_t) - R_t^{(i)}\bigr)^2,
+\]
+where targets $R_t^{(i)}$ are normalized per component via DiagonalPopArt to handle the varying scales of discriminator and task rewards. This per-objective normalization followed by weighted combination matches the multi-critic implementation used in training.
+
+\subsubsection{Auxiliary Regularisations}
+
+\textbf{Bilateral symmetry loss.} An optional $\ell_2$ penalty between mirrored sagittal-plane joint pairs $\mathcal{P} = \{(i,j)\}$ (11 pairs: shoulders, elbows, hips, knees, ankles):
+\[
+    \mathcal{L}_{\text{sym}} = \frac{\lambda_{\text{sym}}}{|\mathcal{P}|}\sum_{(i,j)\in\mathcal{P}} \|\sigma_j\,\mu_i - \mu_j\|^2,
+\]
+where $\mu_i,\mu_j$ are policy mean outputs and $\sigma_j \in \{-1,+1\}$ accounts for lateral-axis sign flips~\cite{symlocom2018}. The full PPO objective is:
+\[
+    \mathcal{L} = \mathcal{L}^{\text{clip}} + c_v\,\mathcal{L}^{\text{value}} + \mathcal{L}_{\text{sym}}.
+\]
+
+\textbf{Phase-conditioned observations.} When enabled, the normalised cycle position
+\[
+    \phi_t = \frac{t \bmod T_{\text{cycle}}}{T_{\text{cycle}}} \in [0,1)
+\]
+is encoded as $(\sin 2\pi\phi_t,\, \cos 2\pi\phi_t)$ and appended to the policy observation, providing an explicit temporal anchor for periodic motions.
+
+\textbf{Termination penalty.} Episodes terminate when root body height drops below $h_{\min}$ for $N_{\text{grace}}$ consecutive frames (fall detection). Terminated transitions receive a fixed negative reward $r_{\text{term}}$ to discourage unstable policies. Looped reference motions wrap cyclically, and the maximum number of cycles per episode is configurable.

@@ -102,6 +102,14 @@ reason:
 
 **NOTE:** using phase-input adds additional goal tensor to actor and critic. Thus model achitechiture itself fundamentally changes, thus it cant be used to load into model with other config without phase-inp enabled. (we can modify model interally thorugh, but lets just skip and abandon this method only for experimentations)
 
+other iccgan motion comparisions:
+
+$ python eval_comparator.py checkpoints/kick checkpoints/leg_lunge checkpoints/punch checkpoints/roll checkpoints/squat checkpoints/long_jump
+
+target task based motion comparisons
+
+$ python eval_comparator.py checkpoints/locomotion_walk checkpoints/locomotion_run checkpoints/locomotion_crouch
+
 ### Vimo replications:
 
 1. Simple ICCGANHumanoid mimic:
@@ -113,6 +121,8 @@ python main.py config/vimo/gLH/ch01.py --ckpt checkpoints/gLH
 python main.py config/vimo/gLO/ch02.py --ckpt checkpoints/gLO
 python main.py config/vimo/gMH/ch02.py --ckpt checkpoints/gMH
 python main.py config/vimo/gPO/ch01.py --ckpt checkpoints/gPO
+
+python eval_comparator.py checkpoints/gBR/ch01 checkpoints/gHO/ch01 checkpoints/gJS/ch02 checkpoints/gLH/ch01 checkpoints/gLO/ch02 checkpoints/gMH/ch02 checkpoints/gPO/ch01
 ```
 
 ### Policy Evaluation
@@ -175,8 +185,6 @@ We cannot provide the tennis motions shown in the paper due to the commercial li
 
 ## Citation
 
-If you use the code or provided motions for your work, please consider citing our papers:
-
     @article{composite,
         author = {Xu, Pei and Shang, Xiumin and Zordan, Victor and Karamouzas, Ioannis},
         title = {Composite Motion Learning with Task Control},
@@ -207,4 +215,46 @@ If you use the code or provided motions for your work, please consider citing ou
 - motions starting from non-balanced initial pose, mostly jump based motions, have very hard time mimicing the motion in physics simulator
 - there are few loopholes to not trigger fall off of humanoid char model depending on motion (locomotion_run) as well as 
 - there is downside in existing termination condition hinder learning of certain motion that have data of char doing acrobatics where it falls and gets up or similar stuff (roll)
-- 
+
+## episodes taken for report:
+```
+D:\STUDIES\MTech\#MTP\codes\composite_motion>python eval_frames.py ./checkpoints
+  Processing: episode_002.gif  (10 frames, mode=strobe, layout=concat, thresh=18, ref_idx=0)
+  Saved -> checkpoints\gBR\ch01\overlap_frames.png
+  Processing: episode_007.gif  (10 frames, mode=strobe, layout=concat, thresh=18, ref_idx=0)
+  Saved -> checkpoints\gHO\ch01\overlap_frames.png
+  Processing: episode_004.gif  (10 frames, mode=strobe, layout=concat, thresh=18, ref_idx=0)
+  Saved -> checkpoints\gJS\ch02\overlap_frames.png
+  Processing: episode_010.gif  (10 frames, mode=strobe, layout=concat, thresh=18, ref_idx=0)
+  Saved -> checkpoints\gLH\ch01\overlap_frames.png
+  Processing: episode_010.gif  (10 frames, mode=strobe, layout=concat, thresh=18, ref_idx=0)
+  Saved -> checkpoints\gLO\ch02\overlap_frames.png
+  Processing: episode_003.gif  (10 frames, mode=strobe, layout=concat, thresh=18, ref_idx=0)
+  Saved -> checkpoints\gMH\ch02\overlap_frames.png
+  Processing: episode_010.gif  (10 frames, mode=strobe, layout=concat, thresh=18, ref_idx=0)
+  Saved -> checkpoints\gPO\ch01\overlap_frames.png
+  Processing: episode_008.gif  (10 frames, mode=strobe, layout=concat, thresh=18, ref_idx=0)
+  Saved -> checkpoints\jaunty_walk\overlap_frames.png
+  Processing: episode_010.gif  (10 frames, mode=strobe, layout=concat, thresh=18, ref_idx=0)
+  Saved -> checkpoints\joyful_walk\overlap_frames.png
+  Processing: episode_010.gif  (10 frames, mode=strobe, layout=concat, thresh=18, ref_idx=0)
+  Saved -> checkpoints\kick\overlap_frames.png
+  Processing: episode_010.gif  (10 frames, mode=strobe, layout=concat, thresh=18, ref_idx=0)
+  Saved -> checkpoints\leg_lunge\overlap_frames.png
+  Processing: episode_010.gif  (10 frames, mode=strobe, layout=concat, thresh=18, ref_idx=0)
+  Saved -> checkpoints\limp_walk\overlap_frames.png
+  Processing: episode_009.gif  (10 frames, mode=strobe, layout=concat, thresh=18, ref_idx=0)
+  Saved -> checkpoints\locomotion_crouch\overlap_frames.png
+  Processing: episode_008.gif  (10 frames, mode=strobe, layout=concat, thresh=18, ref_idx=0)
+  Saved -> checkpoints\locomotion_run\overlap_frames.png
+  Processing: episode_010.gif  (10 frames, mode=strobe, layout=concat, thresh=18, ref_idx=0)
+  Saved -> checkpoints\locomotion_walk\overlap_frames.png
+  Processing: episode_008.gif  (10 frames, mode=strobe, layout=concat, thresh=18, ref_idx=0)
+  Saved -> checkpoints\long_jump\overlap_frames.png
+  Processing: episode_010.gif  (10 frames, mode=strobe, layout=concat, thresh=18, ref_idx=0)
+  Saved -> checkpoints\punch\overlap_frames.png
+  Processing: episode_004.gif  (10 frames, mode=strobe, layout=concat, thresh=18, ref_idx=0)
+  Saved -> checkpoints\roll\overlap_frames.png
+  Processing: episode_010.gif  (10 frames, mode=strobe, layout=concat, thresh=18, ref_idx=0)
+  Saved -> checkpoints\squat\overlap_frames.png
+```
