@@ -70,7 +70,8 @@ def test(env, model, save_dir, max_episodes=10):
     """Test the trained model.
 
     rgb_array mode: collects frames for each episode and saves a GIF at env.fps
-    once env.done[0] is True.  Saves up to max_episodes GIFs.
+    - once env.done[0] is True.  Saves up to max_episodes GIFs.
+    - once termination is True (overtime check ignored).  Saves up to max_episodes GIFs.
     human mode: runs until the viewer is closed or max_episodes is exceeded.
     Exit early at any point with ESC / 'q' (rgb_array) or by closing the viewer.
     """
@@ -189,6 +190,7 @@ def test(env, model, save_dir, max_episodes=10):
 
             # Episode ends when env-0 is done (terminated or truncated)
             episode_done = bool(env.done[0].item())
+            #episode_done = bool(terminated.reshape(-1)[0])
 
         # ---- save GIF for completed episode (rgb_array mode) -----------------
         if env.render_mode == "rgb_array" and episode_frames and not quit_requested:

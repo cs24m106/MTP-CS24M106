@@ -1,5 +1,5 @@
 \contentsline {table}{\numberline {1}{\ignorespaces SMPL kinematic model vs.\ MuJoCo simulation humanoid.}}{12}{table.caption.9}%
-\contentsline {table}{\numberline {2}{\ignorespaces Hyperparameters}}{36}{table.caption.20}%
-\contentsline {table}{\numberline {3}{\ignorespaces ICCGAN motion imitation performance at convergence (Period 20). Highlights used to substantiate inferences on replication fidelity, stability, and termination behavior.}}{42}{table.caption.25}%
-\contentsline {table}{\numberline {4}{\ignorespaces Vimo dance motion performance at convergence (Period 30). Numerical highlights from training traces directly substantiate inferences on stability, converter artifacts, and partial success.}}{44}{table.caption.33}%
-\contentsline {table}{\numberline {5}{\ignorespaces Task-based locomotion performance at convergence.}}{47}{table.caption.42}%
+\contentsline {table}{\numberline {2}{\ignorespaces Hyperparameters}}{35}{table.caption.18}%
+\contentsline {table}{\numberline {3}{\ignorespaces ICCGAN motion imitation performance at convergence (Period 20). Highlights used to substantiate inferences on replication fidelity, stability, and termination behavior.}}{38}{table.caption.23}%
+\contentsline {table}{\numberline {4}{\ignorespaces Vimo dance motion performance at convergence (Period 30). Numerical highlights from training traces directly substantiate inferences on stability, converter artifacts, and partial success.}}{43}{table.caption.31}%
+\contentsline {table}{\numberline {5}{\ignorespaces Task-based locomotion performance at convergence.}}{45}{table.caption.40}%

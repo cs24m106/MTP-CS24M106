@@ -1,70 +1,9 @@
-\section{Experiments}
-\label{sec:experiments}
+\section{Adversarial Control Experiments}
+\label{sec:phys_exps}
 
-\subsection{Motion Generation Experiments}
+\noindent\textit{ViMo-Flow motion-generation experiments along with spml (34-joints) to deepmimic (24-joints) retargeting convertion scope is convered here: Appendix~\ref{sec:vimo_exps}.}\par
 
-\paragraph{Implementation details.}
-Training used the ADAN optimizer with an initial learning rate of $1 \times 10^{-4}$. Sequences were resampled from 60 FPS to 30 FPS, yielding $S=150$ frames per five-second clip. Diffusion timesteps used $T=1000$, with DDIM acceleration during sampling. SMPL axis-angle parameters were converted to 6D rotations using orthogonalization~\cite{6drot2020}. Foot-contact labels were derived from near-zero vertical foot and toe velocities. Training followed the AIST++ protocol~\cite{aist2021}: break and middle hip-hop genres were held out for testing, while the remaining genres were used for training. Multi-view 2D keypoints served as conditioning input, and batch size was fixed at 32. The objective of these experiments was not only to train the generator in isolation, but also to verify that its outputs can be converted into reference motions suitable for physically simulated control.
-
-\begin{figure}[htbp]
-    \centering
-    \includegraphics[height=.95\textheight, keepaspectratio]{Pictures/sample_conversion.jpg}
-    \caption{SMPL Humanoid (34-joints) to Deepmimic Humanoid (28-joints) Retargeted Sample}
-    \label{fig:smpl_exp}
-\end{figure}
-
-\paragraph{Training stability and lambda scheduling.}
-Early epochs set $\lambda_{\text{joints}}=0.01$, $\lambda_{\text{vel}}=1.0$, $\lambda_{\text{foot}}=0.1$. The velocity loss dominated, causing collapse to static poses where $\mathbf{R}_{t+1} \approx \mathbf{R}_t$. Direct matrix subtraction $\mathbf{R}_{t+1} - \mathbf{R}_t$ is not physically meaningful on $SO(3)$ and produced large gradients that overwhelmed the diffusion objective. The model learned that predicting no motion minimized loss.
-
-To counteract collapse, lambda scheduling evolved: $\lambda_{\text{joints}}$ increased to $0.1$ by epoch 25, $\lambda_{\text{vel}}$ reduced to $0.01$ by epoch 40, and $\lambda_{\text{foot}}$ rose to $0.5$. Crucially, setting any auxiliary loss to zero caused immediate mean-pose collapse; all three losses required non-zero weights from initialization. The final stable configuration used $\lambda_{\text{joints}}=0.1$, $\lambda_{\text{vel}}=0.02$, $\lambda_{\text{foot}}=0.05$.
-
-\paragraph{SNR weighting strategies.}
-Standard diffusion training with constant weighting $w_t=1$ yielded poor sample efficiency because most late timesteps contributed negligible gradient after the SNR cliff. Experiments evaluated four strategies:
-\begin{itemize}
-    \item \textbf{Min-cap}: $w_t = \min(\text{SNR}_t, \gamma)$ with $\gamma=1$ created a steep cliff; 70\% of steps carried near-zero weight.
-    \item \textbf{Decay min-cap}: Linear or sqrt decay schedules smoothed early steps but left the cliff intact.
-    \item \textbf{Averaging}: $w_t = \frac{1}{2}[\min(\text{SNR}_t, 1) + \sqrt{1-t/T}]$ filled the dead zone, achieving ~50\% sample efficiency. This variant prevented collapse and maximized data utilization.
-    \item \textbf{Normalization}: Per-batch normalization of $w_t$ stabilized training but slowed convergence when combined with high caps ($\gamma=2$).
-\end{itemize}
-The most stable setting used square-root decay averaging with $\gamma=1$ and no per-batch normalization, providing the best trade-off between gradient coverage and convergence speed~\cite{minsnr2024}.
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=\textwidth]{Pictures/snr.png}
-\caption{Ablation of SNR weighting strategies for a $T=1000$ linear diffusion process ($\beta \in [1e-4, 0.02]$). Plotted are the signal term $\sqrt{\bar{\alpha}_t}$ and noise term $\sqrt{1-\bar{\alpha}_t}$, benchmark decay curves (linear, square root, and their average), and proposed SNR variants: simple ratio $\frac{\bar{\alpha}_t}{1-\bar{\alpha}_t}$, min-capped decays, ratio-split=0.1 blends, normalized, and scaled weights. Area-under-curve (AUC) percentages (cap=1.0) quantify integrated weight magnitude. Normalized SNR achieves the highest AUC (99.843\%), while simple SNR decays precipitously.}
-\label{fig:snr}
-\end{figure}
-
-\paragraph{Temporal modeling with PTSS.}
-Vectorized timesteps enable frame-wise noise schedules but risk combinatorial explosion. Probabilistic Timestep Sampling Strategy (PTSS) controls complexity. Experiments varied $p$, the probability of independent per-frame sampling:
-\begin{itemize}
-    \item $p=0.2$ to $0.5$ over epochs 1–50 showed steady loss decrease and growing prediction variance.
-    \item $p>0.6$ introduced excessive variance, triggering SMPL forward kinematics violations in root position scale.
-    \item Returning to $p=0.2$ after epoch 60 with learning rate increased to $2.5 \times 10^{-4}$ stabilized training.
-\end{itemize}
-PTSS improved temporal flexibility but required careful scheduling. In practice, low initial values of $p$ were essential for stability, while larger values were useful only after the model had already learned coarse motion structure~\cite{ptss2024}.
-
-\paragraph{Model architecture ablations.}
-Two FiLM implementations were compared. Version~1 shared a single linear layer across all modulation points within a denoiser block. Version~2 used three separate linear layers for self-attention, cross-attention, and MLP outputs. Both applied identical parameters across frames.
-\begin{itemize}
-    \item Small models ($d=128$, $n_{\text{heads}}=4$) showed no performance gap.
-    \item Large models ($d=256$, $n_{\text{heads}}=8$) revealed Version~2 converged marginally slower due to increased parameters.
-    \item Version~1 was selected for production runs as parameter reduction mitigated overfitting on the 26k-sample dataset.
-    \item The difference was negligible; architectural novelty lies in conditioning strategy, not FiLM multiplicity.
-\end{itemize}
-
-\paragraph{Convergence monitoring and deployment use.}
-Tracking loss component magnitudes guided training:
-\begin{itemize}
-    \item $\mathcal{L}_{\text{joints}}$ target: 0.01–0.02. Below 0.01 indicated overfitting; above 0.03 required higher $\lambda_{\text{joints}}$.
-    \item $\mathcal{L}_{\text{vel}}$ target: 0.05–0.10. Below 0.01 signaled static predictions; above 0.15 produced erratic motion.
-    \item $\mathcal{L}_{\text{foot}}$ target: $10^{-4}$–$10^{-3}$. Above 0.01 revealed excessive foot sliding; below $10^{-4}$ over-constrained naturalness.
-\end{itemize}
-Prediction standard deviation steadily increased from near-zero to stable values around 0.1--0.2, confirming the emergence of dynamic motion. Beyond quantitative convergence, the important pipeline-level outcome was successful retargeting of generated clips into simulation-ready references. This was verified on multiple converted motion families, including checkpoints corresponding to `gBR`, `gHO`, `gJS`, `gLH`, `gLO`, `gMH`, and `gPO`, which were used as motion inputs for downstream control experiments.
-
-\subsection{Adversarial Control Experiments}
-
-\paragraph{Implementation details.}
+\subsection{Implementation details}
 Controller training ran for 5,000 epochs in MuJoCo at 30 FPS. Two rollout settings were evaluated: horizon $H_{\text{steps}}=8$ with 32 parallel environments, and horizon $H_{\text{steps}}=16$ with 16 parallel environments. PPO used 5 update epochs per rollout, clip ratio $\epsilon=0.2$, discount $\gamma=0.95$, and GAE parameter $\lambda=0.95$~\cite{ppo2017}. Learning rates were fixed at $5\times 10^{-6}$ for the actor, $10^{-4}$ for the critic, and $10^{-5}$ for the discriminator. Gradient penalty used $\lambda_{\text{gp}}=10$~\cite{wgangp2017}, and symmetry experiments used $\lambda_{\text{sym}}=0.005$~\cite{symlocom2018}. The adversarial reward followed the ICCGAN-style discriminator setup used in the control framework~\cite{iccgan2021, composite2023}.
 
 \paragraph{Reference motions and difficulty tiers.}
@@ -76,8 +15,8 @@ The evaluation focused on three single-clip locomotion motions with increasing c
 \end{itemize}
 The corresponding step counts per motion cycle were 57 for \textit{limp\_walk}, 35 for \textit{joyful\_walk}, and 41 for \textit{jaunty\_walk}, as parsed from the environment configuration. Maximum episode length was set to two cycles for \textit{limp\_walk} and \textit{joyful\_walk}, and one cycle for \textit{jaunty\_walk}. In addition to these controlled case studies, feasibility of the full pipeline was checked on retargeted motion clips generated by the motion synthesis model and stored under the `vimo` motion set.
 
-\paragraph{Evaluation metrics.}
-Run comparison followed the analyzer used in `eval_analyzer.py`. For a motion with cycle length $S_{\text{cycle}}$, the normalized survival metric is
+\subsection{Evaluation metrics}
+For a motion with cycle length $S_{\text{cycle}}$, the normalized survival metric is
 \[
     \text{lifetime\_cycles} = \frac{\text{lifetime}}{S_{\text{cycle}}}.
 \]
@@ -93,7 +32,7 @@ The baseline runs without phase input and without symmetry loss established the 
 \paragraph{Horizon ablation ($H=8$ versus $H=16$).}
 Increasing the rollout horizon improves the temporal support available to the critic and the discriminator, but it also reduces the number of environments collected per update in the present setup. The effect was motion dependent. For \textit{limp\_walk}, the phase-input variant improved from $0.69 \pm 0.09$ cycles at $H=8$ to $0.73 \pm 0.11$ cycles at $H=16$, indicating that longer temporal context is beneficial when the motion is periodic and stable. For \textit{joyful\_walk}, the symmetry variant improved from $0.71 \pm 0.08$ cycles at $H=8$ to $0.77 \pm 0.13$ cycles at $H=16$. For \textit{jaunty\_walk}, however, the best result remained phase-based and only changed from $0.38 \pm 0.05$ to $0.33 \pm 0.06$, showing that horizon extension alone does not resolve strongly asymmetric or impulsive control demands.
 
-\paragraph{Case study I: phase-conditioned observations.}
+\subsection{Case study I: phase-conditioned observations}
 
 Phase input augments the observation vector with sinusoidal encodings of the normalized cycle position:
 \[
@@ -133,7 +72,7 @@ At $H=16$, the phase variant achieved the best configuration with $0.73 \pm 0.11
 
 The mechanism operates as a \emph{temporal lookup key}: the policy queries which portion of the motion cycle it occupies and conditions its action distribution accordingly. This reduces variance in the advantage estimates for GAE and stabilizes early training. However, the conditioning assumes a known fixed cycle structure; it therefore generalizes poorly to aperiodic motions or multi-behavior transitions where $\phi_t$ becomes ill-defined.
 
-\paragraph{Case study II: bilateral symmetry regularisation.}
+\subsection{Case study II: bilateral symmetry regularisation}
 
 The bilateral symmetry loss penalizes deviation from mirror symmetry across sagittal-plane joint pairs. For each left-right pair $(j^{\text{left}}, j^{\text{right}})$ with corresponding actions $(a_{j^{\text{left}}}, a_{j^{\text{right}}})$, the loss computes:
 \[
@@ -173,7 +112,7 @@ The regularizer is applied with weight $\lambda_{\text{sym}} = 0.005$ during PPO
 \paragraph{Pipeline use with generated motions.}
 Beyond the controlled locomotion study, the pipeline was exercised on retargeted motion clips derived from the motion generator and stored under the `vimo` motion assets and checkpoints. These runs were used primarily as feasibility tests: they verified that the generated kinematic sequences could be converted into valid DeepMimic-style references and loaded by the MuJoCo controller without format mismatch. This experiment was important for the end-to-end objective of the project, because it established that the generated motions are not only visually plausible in kinematic space but also structurally compatible with the downstream control stack.
 
-\paragraph{Scope of the present study.}
+\subsection{Scope of the present study}
 Only motion imitation and the two implemented ablations---phase-conditioned observations and bilateral symmetry regularisation---were evaluated systematically in the current work. Robustness experiments under perturbations, interactive policy switching, and fully goal-directed control were not implemented in the present pipeline and are therefore excluded from quantitative comparison here. Those components remain natural extensions once the imitation backbone is stabilized on a broader set of motions.
 
 Default hyperparameters used throughout (overridable per config for task-specific parameters such as horizon, num\_envs, and grace\_steps):

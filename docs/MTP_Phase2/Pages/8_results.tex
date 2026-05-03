@@ -22,13 +22,12 @@ A secondary limitation is dataset coverage. AIST++ provides choreographed single
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-\newpage
+%\newpage
+\vspace{5em}
 \section{Results}
 \label{sec:results}
 
-% ── ViMo-Flow results are in Appendix~\ref{sec:appendix_vimo}. ────────────────
-% ── Physics-Based Imitation results will be added here once           ─────────
-% ── frame-wise simulation renders and training curve plots are ready. ─────────
+\noindent\textit{ViMo-Flow qualitative samples for different vimo configurations and thier outputs are covered here: Appendix~\ref{sec:vimo_results} as part of previous study.}\par
 
 \subsection{ICCGAN Humanoid Motions}
 
@@ -137,7 +136,7 @@ roll      & 0.0575 $\pm$ 0.0095 & -0.1367 $\pm$ 0.0125 & 0.1978 & 0.1700 & -0.02
 
 \textbf{Roll.} Complete failure to complete the sequence despite targeted mitigation. The pelvis-height termination (<0.15\,m) triggers episode end precisely when the motion requires floor contact. The \texttt{grace\_steps} counter (extended in config) delays reset during prone states, allowing partial diving imitation, yet the policy cannot recover upright posture from fallen initial states. This is quantitatively confirmed by lifetime cycles collapsing to 0.0575, persistently negative reward (-0.137), and lowest scores. Figure~\ref{fig:roll_sim} captures the initial dive; the subsequent ground contact triggers termination before the rollover and upright recovery can execute. The implementation reveals a fundamental simulator limitation for motions violating the termination heuristic, addressed partially but insufficiently for full rollout recovery.
 
-These results demonstrate that the body-part discriminator approach scales effectively to simple static and cyclic motions (squat, punch) but exposes limits on high-momentum asymmetric or ground-interaction behaviors (kick, roll). Overlapping frame composites and per-episode RGB arrays (generated via \texttt{eval\_frames.py}) provide visual confirmation, with training curves (via \texttt{eval\_analyzer.py}) showing rapid convergence for high-fidelity cases within 5\,000--10\,000 epochs.
+These results demonstrate that the body-part discriminator approach scales effectively to simple static and cyclic motions (squat, punch) but exposes limits on high-momentum asymmetric or ground-interaction behaviors (kick, roll). Overlapping frame composites and per-episode RGB arrays provide visual confirmation, with training curves showing rapid convergence for high-fidelity cases within 5\,000--10\,000 epochs.
 
 The locomotion baselines (jaunty, joyful, limp walks) were analyzed in the experimental section; the above extends the evaluation to a broader mocap suite, confirming the pipeline's adaptability for mocap-driven physics-based animation while highlighting directions for extended DOF models and refined termination logic.
 

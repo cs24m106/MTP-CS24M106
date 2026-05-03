@@ -21,73 +21,73 @@
 \contentsline {subsection}{\numberline {2.6}Symmetry and Phase Priors}{8}{subsection.0.2.6}%
 \contentsline {subsection}{\numberline {2.7}Policy Adaptation}{8}{subsection.0.2.7}%
 \contentsline {section}{\numberline {III}Overview}{9}{section.0.3}%
-\contentsline {section}{\numberline {IV}Problem Statement}{10}{section.0.4}%
-\contentsline {subsection}{\numberline {4.1}Task Definition}{10}{subsection.0.4.1}%
-\contentsline {paragraph}{Motion synthesis objective.}{10}{subsection.0.4.1}%
-\contentsline {paragraph}{Control objective.}{10}{subsection.0.4.1}%
+\contentsline {section}{\numberline {IV}Problem Statement}{11}{section.0.4}%
+\contentsline {subsection}{\numberline {4.1}Task Definition}{11}{subsection.0.4.1}%
+\contentsline {paragraph}{Motion synthesis objective.}{11}{subsection.0.4.1}%
+\contentsline {paragraph}{Control objective.}{11}{subsection.0.4.1}%
 \contentsline {subsection}{\numberline {4.2}Motion Corpus and Data Preparation}{11}{subsection.0.4.2}%
 \contentsline {subsection}{\numberline {4.3}Simulation Character and Reference Motion Format}{12}{subsection.0.4.3}%
-\contentsline {section}{\numberline {V}Vimo-Flow}{13}{section.0.5}%
-\contentsline {subsection}{\numberline {5.1}Diffusion Formulation}{13}{subsection.0.5.1}%
-\contentsline {subsection}{\numberline {5.2}Network Architecture}{14}{subsection.0.5.2}%
-\contentsline {subsection}{\numberline {5.3}FiLM Conditioning}{16}{subsection.0.5.3}%
-\contentsline {subsection}{\numberline {5.4}Sampling and Training Strategy}{16}{subsection.0.5.4}%
-\contentsline {section}{\numberline {VI}Composite-Motion}{17}{section.0.6}%
-\contentsline {subsection}{\numberline {6.1}Motion Retargeting: SMPL to Simulation}{17}{subsection.0.6.1}%
-\contentsline {paragraph}{Step 1 --- Coordinate transform.}{17}{subsection.0.6.1}%
-\contentsline {paragraph}{Step 2 --- Height scaling.}{17}{subsection.0.6.1}%
-\contentsline {paragraph}{Step 3 --- Floor correction.}{17}{subsection.0.6.1}%
-\contentsline {paragraph}{Step 4 --- Bind rotations.}{18}{subsection.0.6.1}%
-\contentsline {paragraph}{Step 5 --- Chain composition and export.}{18}{subsection.0.6.1}%
-\contentsline {subsection}{\numberline {6.2}Observation, Action, and Discriminator Interface}{18}{subsection.0.6.2}%
-\contentsline {paragraph}{Policy observation.}{18}{subsection.0.6.2}%
-\contentsline {paragraph}{Action space.}{18}{subsection.0.6.2}%
-\contentsline {paragraph}{Discriminator observation.}{19}{subsection.0.6.2}%
-\contentsline {subsection}{\numberline {6.3}Policy, Value, and Discriminator Networks}{19}{subsection.0.6.3}%
-\contentsline {paragraph}{Actor-critic model.}{19}{subsection.0.6.3}%
-\contentsline {paragraph}{Discriminator ensemble.}{19}{subsection.0.6.3}%
-\contentsline {subsection}{\numberline {6.4}Controller Learning}{19}{subsection.0.6.4}%
-\contentsline {subsection}{\numberline {6.5}Composite Motion and Goal Control}{20}{subsection.0.6.5}%
-\contentsline {subsection}{\numberline {6.6}Interactive Policy Switching}{21}{subsection.0.6.6}%
-\contentsline {subsection}{\numberline {6.7}Incremental Learning}{21}{subsection.0.6.7}%
-\contentsline {section}{\numberline {VII}Loss Functions}{22}{section.0.7}%
-\contentsline {subsection}{\numberline {7.1}Motion Generation Objective}{22}{subsection.0.7.1}%
-\contentsline {subsubsection}{\numberline {7.1 (i)}6D Rotation Representation}{22}{subsubsection.0.7.1.1}%
-\contentsline {subsubsection}{\numberline {7.1 (ii)}Standard Regularizations}{22}{subsubsection.0.7.1.2}%
-\contentsline {subsubsection}{\numberline {7.1 (iii)}SNR Integration}{23}{subsubsection.0.7.1.3}%
-\contentsline {subsection}{\numberline {7.2}Adversarial Control Objectives}{23}{subsection.0.7.2}%
-\contentsline {subsubsection}{\numberline {7.2 (i)}Discriminator Training Objective}{23}{subsubsection.0.7.2.1}%
-\contentsline {subsubsection}{\numberline {7.2 (ii)}Policy Optimization via PPO}{24}{subsubsection.0.7.2.2}%
-\contentsline {subsubsection}{\numberline {7.2 (iii)}Auxiliary Regularisations}{25}{subsubsection.0.7.2.3}%
-\contentsline {section}{\numberline {VIII}Experiments}{26}{section.0.8}%
-\contentsline {subsection}{\numberline {8.1}Motion Generation Experiments}{26}{subsection.0.8.1}%
-\contentsline {paragraph}{Implementation details.}{26}{subsection.0.8.1}%
-\contentsline {paragraph}{Training stability and lambda scheduling.}{26}{figure.caption.15}%
-\contentsline {paragraph}{SNR weighting strategies.}{26}{figure.caption.15}%
-\contentsline {paragraph}{Temporal modeling with PTSS.}{29}{figure.caption.16}%
-\contentsline {paragraph}{Model architecture ablations.}{29}{figure.caption.16}%
-\contentsline {paragraph}{Convergence monitoring and deployment use.}{29}{figure.caption.16}%
-\contentsline {subsection}{\numberline {8.2}Adversarial Control Experiments}{30}{subsection.0.8.2}%
-\contentsline {paragraph}{Implementation details.}{30}{subsection.0.8.2}%
-\contentsline {paragraph}{Reference motions and difficulty tiers.}{30}{subsection.0.8.2}%
-\contentsline {paragraph}{Evaluation metrics.}{30}{subsection.0.8.2}%
-\contentsline {paragraph}{Baseline performance.}{31}{subsection.0.8.2}%
-\contentsline {paragraph}{Horizon ablation ($H=8$ versus $H=16$).}{31}{subsection.0.8.2}%
-\contentsline {paragraph}{Case study I: phase-conditioned observations.}{31}{subsection.0.8.2}%
-\contentsline {paragraph}{Case study II: bilateral symmetry regularisation.}{33}{figure.caption.18}%
-\contentsline {paragraph}{Pipeline use with generated motions.}{36}{figure.caption.19}%
-\contentsline {paragraph}{Scope of the present study.}{36}{figure.caption.19}%
-\contentsline {section}{\numberline {IX}Conclusion and Future Work}{38}{section.0.9}%
-\contentsline {paragraph}{Limitations.}{38}{section.0.9}%
-\contentsline {paragraph}{Planned Extensions.}{38}{section.0.9}%
-\contentsline {section}{\numberline {X}Results}{40}{section.0.10}%
-\contentsline {subsection}{\numberline {10.1}ICCGAN Humanoid Motions}{40}{subsection.0.10.1}%
-\contentsline {subsection}{\numberline {10.2}Vimo Full-Body Dance Motions (AIST Retargeted)}{44}{subsection.0.10.2}%
-\contentsline {subsection}{\numberline {10.3}Task-Based Locomotion Simulations (LaFAN1)}{47}{subsection.0.10.3}%
-\contentsline {paragraph}{Task environment setup.}{47}{subsection.0.10.3}%
-\contentsline {section}{References}{52}{chapter*.47}%
-\contentsline {section}{\numberline {A}ViMo-Flow: Qualitative Results}{53}{section.Alph0.1}%
-\contentsline {paragraph}{\textbf {Small model v1, no PTSS (ViMo baseline), 50 epochs}}{53}{section.Alph0.1}%
-\contentsline {paragraph}{\textbf {Small model v1 with PTSS, 65 epochs}}{53}{figure.caption.50}%
-\contentsline {paragraph}{\textbf {Small model v2 with PTSS, 65 epochs}}{54}{figure.caption.53}%
-\contentsline {paragraph}{\textbf {Big model v1 with PTSS, 100 epochs}}{55}{figure.caption.56}%
+\contentsline {section}{\numberline {V}Vimo-Flow}{15}{section.0.5}%
+\contentsline {subsection}{\numberline {5.1}Diffusion Formulation}{15}{subsection.0.5.1}%
+\contentsline {subsection}{\numberline {5.2}Network Architecture}{17}{subsection.0.5.2}%
+\contentsline {subsection}{\numberline {5.3}FiLM Conditioning}{17}{subsection.0.5.3}%
+\contentsline {subsection}{\numberline {5.4}Sampling and Training Strategy}{18}{subsection.0.5.4}%
+\contentsline {section}{\numberline {VI}Composite-Motion}{19}{section.0.6}%
+\contentsline {subsection}{\numberline {6.1}Motion Retargeting: SMPL to Simulation}{19}{subsection.0.6.1}%
+\contentsline {paragraph}{Step 1 --- Coordinate transform.}{19}{subsection.0.6.1}%
+\contentsline {paragraph}{Step 2 --- Height scaling.}{19}{subsection.0.6.1}%
+\contentsline {paragraph}{Step 3 --- Floor correction.}{19}{subsection.0.6.1}%
+\contentsline {paragraph}{Step 4 --- Bind rotations.}{19}{subsection.0.6.1}%
+\contentsline {paragraph}{Step 5 --- Chain composition and export.}{20}{subsection.0.6.1}%
+\contentsline {subsection}{\numberline {6.2}Observation, Action, and Discriminator Interface}{20}{subsection.0.6.2}%
+\contentsline {paragraph}{Policy observation.}{20}{subsection.0.6.2}%
+\contentsline {paragraph}{Action space.}{20}{subsection.0.6.2}%
+\contentsline {paragraph}{Discriminator observation.}{20}{subsection.0.6.2}%
+\contentsline {subsection}{\numberline {6.3}Policy, Value, and Discriminator Networks}{21}{subsection.0.6.3}%
+\contentsline {paragraph}{Actor-critic model.}{21}{subsection.0.6.3}%
+\contentsline {paragraph}{Discriminator ensemble.}{21}{subsection.0.6.3}%
+\contentsline {subsection}{\numberline {6.4}Controller Learning}{22}{subsection.0.6.4}%
+\contentsline {subsection}{\numberline {6.5}Composite Motion and Goal Control}{22}{subsection.0.6.5}%
+\contentsline {subsection}{\numberline {6.6}Interactive Policy Switching}{23}{subsection.0.6.6}%
+\contentsline {subsection}{\numberline {6.7}Incremental Learning}{23}{subsection.0.6.7}%
+\contentsline {section}{\numberline {VII}Loss Functions}{24}{section.0.7}%
+\contentsline {subsection}{\numberline {7.1}Motion Generation Objective}{24}{subsection.0.7.1}%
+\contentsline {subsubsection}{\numberline {7.1 (i)}6D Rotation Representation}{24}{subsubsection.0.7.1.1}%
+\contentsline {subsubsection}{\numberline {7.1 (ii)}Standard Regularizations}{24}{subsubsection.0.7.1.2}%
+\contentsline {subsubsection}{\numberline {7.1 (iii)}SNR Integration}{25}{subsubsection.0.7.1.3}%
+\contentsline {subsection}{\numberline {7.2}Adversarial Control Objectives}{25}{subsection.0.7.2}%
+\contentsline {subsubsection}{\numberline {7.2 (i)}Discriminator Training Objective}{25}{subsubsection.0.7.2.1}%
+\contentsline {subsubsection}{\numberline {7.2 (ii)}Policy Optimization via PPO}{26}{subsubsection.0.7.2.2}%
+\contentsline {subsubsection}{\numberline {7.2 (iii)}Auxiliary Regularisations}{27}{subsubsection.0.7.2.3}%
+\contentsline {section}{\numberline {VIII}Adversarial Control Experiments}{28}{section.0.8}%
+\contentsline {subsection}{\numberline {8.1}Implementation details}{28}{subsection.0.8.1}%
+\contentsline {paragraph}{Reference motions and difficulty tiers.}{28}{subsection.0.8.1}%
+\contentsline {subsection}{\numberline {8.2}Evaluation metrics}{28}{subsection.0.8.2}%
+\contentsline {paragraph}{Baseline performance.}{29}{subsection.0.8.2}%
+\contentsline {paragraph}{Horizon ablation ($H=8$ versus $H=16$).}{29}{subsection.0.8.2}%
+\contentsline {subsection}{\numberline {8.3}Case study I: phase-conditioned observations}{29}{subsection.0.8.3}%
+\contentsline {subsection}{\numberline {8.4}Case study II: bilateral symmetry regularisation}{30}{subsection.0.8.4}%
+\contentsline {paragraph}{Pipeline use with generated motions.}{33}{figure.caption.17}%
+\contentsline {subsection}{\numberline {8.5}Scope of the present study}{33}{subsection.0.8.5}%
+\contentsline {section}{\numberline {IX}Conclusion and Future Work}{36}{section.0.9}%
+\contentsline {paragraph}{Limitations.}{36}{section.0.9}%
+\contentsline {paragraph}{Planned Extensions.}{36}{section.0.9}%
+\contentsline {section}{\numberline {X}Results}{37}{section.0.10}%
+\contentsline {subsection}{\numberline {10.1}ICCGAN Humanoid Motions}{37}{subsection.0.10.1}%
+\contentsline {subsection}{\numberline {10.2}Vimo Full-Body Dance Motions (AIST Retargeted)}{41}{subsection.0.10.2}%
+\contentsline {subsection}{\numberline {10.3}Task-Based Locomotion Simulations (LaFAN1)}{44}{subsection.0.10.3}%
+\contentsline {paragraph}{Task environment setup.}{45}{subsection.0.10.3}%
+\contentsline {section}{References}{50}{chapter*.45}%
+\contentsline {section}{\numberline {A}Motion Generation Experiments}{51}{section.Alph0.1}%
+\contentsline {paragraph}{Implementation details.}{51}{section.Alph0.1}%
+\contentsline {paragraph}{Training stability and lambda scheduling.}{51}{figure.caption.46}%
+\contentsline {paragraph}{SNR weighting strategies.}{51}{figure.caption.46}%
+\contentsline {paragraph}{Temporal modeling with PTSS.}{54}{figure.caption.47}%
+\contentsline {paragraph}{Model architecture ablations.}{54}{figure.caption.47}%
+\contentsline {paragraph}{Convergence monitoring and deployment use.}{54}{figure.caption.47}%
+\contentsline {section}{\numberline {B}ViMo-Flow: Qualitative Results}{55}{section.Alph0.2}%
+\contentsline {paragraph}{\textbf {Small model v1, no PTSS (ViMo baseline), 50 epochs}}{55}{section.Alph0.2}%
+\contentsline {paragraph}{\textbf {Small model v1 with PTSS, 65 epochs}}{56}{figure.caption.50}%
+\contentsline {paragraph}{\textbf {Small model v2 with PTSS, 65 epochs}}{57}{figure.caption.53}%
+\contentsline {paragraph}{\textbf {Big model v1 with PTSS, 100 epochs}}{57}{figure.caption.56}%
+\contentsline {section}{Appendix}{51}{chapter*.45}%

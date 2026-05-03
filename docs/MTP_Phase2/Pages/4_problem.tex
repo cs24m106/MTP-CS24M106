@@ -87,7 +87,7 @@ The DOF reduction from 72 to 28 collapses the three spine segments, collarbones,
 \end{itemize}
 This format directly encodes the MuJoCo generalized coordinates, ensuring compatibility with the pretrained discriminator checkpoints and reference-motion samplers.
 
-\textbf{SMPL-to-Humanoid Data Bridge.} ViMo-Flow outputs and AIST++ mocap clips are both stored in SMPL representation. A retargeting converter (\texttt{smpl\_converter.py}) maps these to the DeepMimic format through coordinate transformation, height scaling, bind-rotation correction, and chain composition. Key considerations motivating the conversion are:
+\textbf{SMPL-to-Humanoid Data Bridge.} ViMo-Flow outputs and AIST++ mocap clips are both stored in SMPL representation. A retargeting converter maps these to the DeepMimic format through coordinate transformation, height scaling, bind-rotation correction, and chain composition. Key considerations motivating the conversion are:
 \begin{itemize}
     \item SMPL joint axes and coordinate conventions are incompatible with MuJoCo's Z-up frame.
     \item Bone length proportions differ between the SMPL neutral body and the MuJoCo humanoid XML.

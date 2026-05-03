@@ -127,6 +127,7 @@ where $w$ controls adherence to the input versus diversity.
 
 To prevent combinatorial explosion when using vectorized timesteps, PTSS~\cite{ptss2024} is introduced. With probability $p$, each frame receives an independently sampled timestep; otherwise, a single timestep is broadcast across all frames. This hybrid schedule bounds the number of distinct noise patterns while preserving frame-wise temporal flexibility.
 
+\newpage
 \section{Composite-Motion}
 \label{sec:physics_framework}
 
@@ -216,7 +217,7 @@ Both actor and critic share the same temporal encoding backbone:
 \end{itemize}
 
 \paragraph{Discriminator ensemble.}
-For each body group $k$, the discriminator uses a GRU encoder (hidden dimension $256$) followed by an MLP $[256 \rightarrow 256 \rightarrow 128 \rightarrow 32]$. The final layer is interpreted as an ensemble of $N=32$ scalar heads that share the feature extractor but retain independent output projections. Weights are initialized orthogonally (gain $\sqrt{2}$ for hidden layers and gain $1$ for output heads), and observations are normalized online.
+For each body group $k$, the discriminator uses a GRU encoder (hidden dimension $256$) followed by an MLP $[256 \rightarrow 256 \rightarrow 128 \rightarrow 32]$ (Figure~\ref{fig:network_arch}). The final layer is interpreted as an ensemble of $N=32$ scalar heads that share the feature extractor but retain independent output projections. Weights are initialized orthogonally (gain $\sqrt{2}$ for hidden layers and gain $1$ for output heads), and observations are normalized online.
 
 
 \begin{figure}[htb]
